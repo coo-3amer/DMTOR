@@ -118,8 +118,8 @@ QListWidget#Filters::item:disabled {{ color:{c['faint']}; font-size:8pt; font-we
 #Banner {{ background:{c['info_bg']}; border-bottom:1px solid {c['line2']}; }}
 #Banner QLabel {{ color:{c['text']}; }}
 
-QToolBar#Top {{ background:{c['bg']}; border:none; border-bottom:1px solid {c['line2']}; padding:10px 12px; spacing:2px; }}
-QToolBar#Top QToolButton {{ background:transparent; border:none; border-radius:8px; padding:7px 10px; color:{c['icon']}; }}
+QToolBar#Top {{ background:{c['bg']}; border:none; border-bottom:1px solid {c['line2']}; padding:10px 10px; spacing:1px; }}
+QToolBar#Top QToolButton {{ background:transparent; border:none; border-radius:8px; padding:7px 9px; color:{c['icon']}; }}
 QToolBar#Top QToolButton:hover {{ background:{c['hover']}; }}
 QToolBar#Top QToolButton:pressed {{ background:{c['press']}; }}
 QToolBar#Top QToolButton:disabled {{ color:{c['faint']}; }}
@@ -131,6 +131,7 @@ QToolBar#Top QToolButton::menu-button {{ border:none; width:16px; border-top-rig
 QToolBar#Top QToolButton::menu-button:hover {{ background:{c['press']}; }}
 QToolBar#Top QToolButton::menu-arrow {{ image:url({asset('chevron-down.png')}); width:10px; height:10px; }}
 QToolBar#Top QToolButton::menu-indicator {{ image:none; width:0; }}
+QToolBar#Top QToolButton#qt_toolbar_ext_button {{ background:{c['btn']}; border-radius:6px; padding:2px; }}
 QToolBar#Top QToolButton[popupMode="1"] {{ padding-right:22px; }}
 QToolBar#Top QToolButton#Capture[off="true"] {{ background:{c['warn_bg']}; color:{c['warn_fg']}; }}
 
