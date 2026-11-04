@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -57,6 +60,33 @@ jobs:
           & $iscc "/DAppVersion=$ver.0" installer/DMTOR.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
           Get-ChildItem output
+          "VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Publish release (download page)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:VER"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag output/DMTOR-Setup.exe --title "DMTOR $env:VER" --notes "Download DMTOR-Setup.exe below and double-click it to install."
+          } else {
+            gh release upload $tag output/DMTOR-Setup.exe --clobber
+          }
+
+      - name: Keep latest installer on the 'download' branch
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force pub | Out-Null
+          Copy-Item output/DMTOR-Setup.exe pub/
+          Set-Location pub
+          git init -q -b download
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add DMTOR-Setup.exe
+          git commit -q -m "DMTOR $env:VER installer"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" download
 
       - uses: actions/upload-artifact@v4
         with:
