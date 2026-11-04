@@ -952,7 +952,7 @@ class SettingsDialog(QDialog):
             ic_name, ic_color = CATEGORY_ICON[key]
             lab = QLabel()
             lab.setPixmap(pixmap(ic_name, ic_color, 18))
-            rows.append(hbox(lab, label(text), stretch=False))
+            rows.append(hbox(lab, label(text)))
             rows.append(folder_row(e, self, f"Folder for {text}"))
         self.folder_hint = label("", "Muted", True)
         self.folder.textChanged.connect(self._folder_hint)
@@ -980,7 +980,8 @@ class SettingsDialog(QDialog):
             b = QPushButton(d)
             b.setCheckable(True)
             b.setChecked(i in on_days)
-            b.setFixedWidth(54)
+            b.setFixedSize(52, 34)
+            b.setStyleSheet("padding:0;")
             self.day_btns.append(b)
             days_row.addWidget(b)
         days_row.addStretch()
@@ -1179,7 +1180,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         app_icon = QIcon(app_icon_path())
         self.setWindowIcon(app_icon)
-        self.resize(1180, 640)
+        scr = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        self.resize(min(1240, scr.width() - 40) if scr else 1240, min(680, scr.height() - 60) if scr else 680)
         self.setMinimumSize(900, 480)
 
         root = QWidget()
@@ -1312,6 +1314,7 @@ class MainWindow(QMainWindow):
         b = self.buttons["when_done"]
         short = {"none": "When done", "sleep": "Then: Sleep", "shutdown": "Then: Shut down", "quit": "Then: Close"}
         b.setText(short.get(key, "When done"))
+        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if key != "none" else Qt.ToolButtonIconOnly)
         b.setIcon(icon("power", T("info_fg") if key != "none" else T("icon"), 18))
         b.setProperty("on", key != "none")
         b.style().unpolish(b)
@@ -1504,6 +1507,7 @@ class MainWindow(QMainWindow):
         b = self.buttons["speed"]
         down, t_down, t_up = self.mgr.effective_limits()
         b.setText(f"Max {fmt_rate(down)}" if on and down else ("Limited" if on else "Unlimited"))
+        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if on else Qt.ToolButtonIconOnly)
         b.setIcon(icon("gauge", T("info_fg") if on else T("icon"), 18))
         if on:
             tip = (f"Speed limit ON\nDownloads: {fmt_rate(down)}\nTorrents: ↓ {fmt_rate(t_down)}"
@@ -1604,6 +1608,7 @@ class MainWindow(QMainWindow):
         on = self.mgr.settings.get("capture", True)
         b = self.buttons["capture"]
         b.setText("Catching on" if on else "Catching off")
+        b.setToolButtonStyle(Qt.ToolButtonIconOnly if on else Qt.ToolButtonTextBesideIcon)
         b.setIcon(icon("catch" if on else "catch_off", T("ok") if on else T("warn_text"), 18))
         b.setToolTip(("Catching downloads from the browser — click to turn off" if on else
                       "Not catching — the browser downloads files itself. Click to turn on")
@@ -1674,12 +1679,12 @@ class MainWindow(QMainWindow):
         self.buttons = {}
         self._btn_icons = {}
 
-        def btn(key, text, ic, slot, tip, prim=False):
+        def btn(key, text, ic, slot, tip, prim=False, icon_only=False):
             b = QToolButton()
             b.setText(text)
             b.setIcon(icon(ic, T("on_acc") if prim else T("icon"), 18, 2.1 if prim else 1.9))
             self._btn_icons[key] = (ic, prim)
-            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            b.setToolButtonStyle(Qt.ToolButtonIconOnly if icon_only else Qt.ToolButtonTextBesideIcon)
             b.setToolTip(tip)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(lambda checked=False, s=slot: s())
@@ -1707,11 +1712,11 @@ class MainWindow(QMainWindow):
         btn("pause", "Pause", "pause", self.pause_selected, "Pause selected (Space)")
         btn("delete", "Delete", "trash", self.remove_selected, "Remove selected (Del)")
         sep()
-        btn("resume_all", "Resume all", "resume_all", self.mgr.resume_all, "Resume every download")
-        btn("pause_all", "Pause all", "pause_all", self.mgr.pause_all, "Pause every download")
+        btn("resume_all", "Resume all", "resume_all", self.mgr.resume_all, "Resume all downloads", icon_only=True)
+        btn("pause_all", "Pause all", "pause_all", self.mgr.pause_all, "Pause all downloads", icon_only=True)
         sep()
-        btn("open", "Open", "open", self.open_selected, "Open the downloaded file")
-        btn("folder", "Show in folder", "folder", self.folder_selected, "Show in folder")
+        btn("open", "Open", "open", self.open_selected, "Open the downloaded file", icon_only=True)
+        btn("folder", "Show in folder", "folder", self.folder_selected, "Show in folder", icon_only=True)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -1729,9 +1734,9 @@ class MainWindow(QMainWindow):
         self.speed_menu.aboutToShow.connect(lambda: self._fill_speed_menu(self.speed_menu))
         sp.setMenu(self.speed_menu)
         cap = btn("capture", "Catching on", "catch", self.toggle_capture,
-                  "Catch downloads from the browser — click to turn off (Ctrl+Shift+C)")
+                  "Catch downloads from the browser — click to turn off (Ctrl+Shift+C)", icon_only=True)
         cap.setObjectName("Capture")
-        btn("settings", "Settings", "settings", self.settings_dialog, "Settings")
+        btn("settings", "Settings", "settings", self.settings_dialog, "Settings", icon_only=True)
         return tb
 
     def _build_table(self):
@@ -1752,7 +1757,7 @@ class MainWindow(QMainWindow):
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hh.setHighlightSections(False)
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c, w in ((1, 95), (2, 230), (3, 105), (4, 90), (5, 150)):
+        for c, w in ((1, 90), (2, 200), (3, 150), (4, 80), (5, 175)):
             hh.setSectionResizeMode(c, QHeaderView.Fixed)
             t.setColumnWidth(c, w)
         t.setItemDelegateForColumn(2, ProgressDelegate(t))
