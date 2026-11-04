@@ -8,8 +8,9 @@ import tempfile
 import threading
 import subprocess
 import urllib.request
+from urllib.parse import urlparse
 
-from PySide6.QtCore import Qt, QTimer, QSize, QRectF
+from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QObject, Signal
 from PySide6.QtGui import QIcon, QFont, QPainter, QColor, QKeySequence, QShortcut, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QToolBar, QToolButton,
@@ -23,6 +24,7 @@ from PySide6.QtCore import QTime
 
 import theme
 import features
+import probe
 from features import ACTIONS, DAYS
 from icons import icon, pixmap, CATEGORY_ICON
 from core import human_size, human_time, category_of, fmt_rate
@@ -254,6 +256,53 @@ class StatusDelegate(QStyledItemDelegate):
 
 
 # ---------------------------------------------------------------- dialogs
+class _Relay(QObject):
+    """Carries a result from a worker thread back to the UI thread."""
+    done = Signal(object)
+
+
+class InfoCard(QFrame):
+    """'What is this download?' — name, size, resume support, free space."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("InfoCard")
+        h = QHBoxLayout(self)
+        h.setContentsMargins(14, 12, 14, 12)
+        h.setSpacing(14)
+        self.ic = QLabel()
+        self.ic.setFixedSize(40, 40)
+        self.ic.setAlignment(Qt.AlignCenter)
+        h.addWidget(self.ic, 0, Qt.AlignTop)
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        top = QHBoxLayout()
+        self.name = QLabel()
+        self.name.setObjectName("InfoName")
+        self.name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.size = QLabel()
+        self.size.setObjectName("InfoSize")
+        top.addWidget(self.name, 1)
+        top.addWidget(self.size, 0, Qt.AlignRight)
+        col.addLayout(top)
+        self.detail = label("", "Muted", True)
+        col.addWidget(self.detail)
+        self.warn = label("", "Warn", True)
+        col.addWidget(self.warn)
+        h.addLayout(col, 1)
+
+    def set(self, ic, color, name, size, detail, warn=""):
+        self.ic.setPixmap(pixmap(ic, color, 30))
+        fm = self.name.fontMetrics()
+        self.name.setText(fm.elidedText(name, Qt.ElideMiddle, 360))
+        self.name.setToolTip(name)
+        self.size.setText(size)
+        self.detail.setText(detail)
+        self.detail.setVisible(bool(detail))
+        self.warn.setText(warn)
+        self.warn.setVisible(bool(warn))
+
+
 class AddDialog(QDialog):
     def __init__(self, parent, mgr, data=None):
         super().__init__(parent)
@@ -315,15 +364,15 @@ class AddDialog(QDialog):
         form.setVerticalSpacing(12)
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         form.addRow(label("URL", "Muted"), urow)
+        self.card = InfoCard()
+        form.addRow(self.card)
         form.addRow(label("Type", "Muted"), self.kind)
         self.q_label = label("Quality", "Muted")
         form.addRow(self.q_label, self.quality)
         self.n_label = label("File name", "Muted")
         form.addRow(self.n_label, self.name)
         form.addRow(label("Save to", "Muted"), frow)
-        size = data.get("size") or 0
-        if size:
-            form.addRow(label("Size", "Muted"), QLabel(human_size(size)))
+        self._hint_size = data.get("size") or 0
         self.t_note = None
         if not torrent.AVAILABLE:
             self.t_note = label("Torrent support isn't installed in this build. Rebuild with Python 3.13 "
@@ -374,7 +423,129 @@ class AddDialog(QDialog):
         self.kind.setCurrentIndex(self._guess_kind(self.url.text(), data.get("type")))
         self.kind.currentIndexChanged.connect(self._sync)
         self.url.textChanged.connect(self._auto_kind)
+
+        # look the download up (size etc.) a moment after the link stops changing
+        self._info = None
+        self._gen = 0
+        self._relay = _Relay()
+        self._relay.done.connect(self._probe_done)
+        self._probe_timer = QTimer(self)
+        self._probe_timer.setSingleShot(True)
+        self._probe_timer.timeout.connect(self._start_probe)
+        self.url.textChanged.connect(lambda *_: self._probe_timer.start(600))
+        self.kind.currentIndexChanged.connect(lambda *_: self._probe_timer.start(150))
+        self.folder.textChanged.connect(lambda *_: self._render_info())
+        self.quality.currentIndexChanged.connect(lambda *_: self._render_info())
         self._sync()
+        self._start_probe()
+
+    # ---- looking the download up ----
+    def _start_probe(self):
+        self._gen += 1
+        gen = self._gen
+        self._info = None
+        url = self.url.text().strip()
+        kind = self.kind.currentIndex()
+        valid = url.lower().startswith(("http://", "https://", "magnet:")) or (
+            url.lower().endswith(".torrent") and os.path.isfile(url))
+        if not valid:
+            self.card.hide()
+            self.adjustSize()
+            return
+        self._render_info(checking=True)
+        headers, referrer = dict(self.headers), self.referrer
+        has_ff = bool(ffmpeg_path())
+
+        def work():
+            try:
+                if kind == 2:
+                    res = probe.probe_torrent(url, headers)
+                elif kind == 1:
+                    res = probe.probe_video(url, referrer, has_ff)
+                else:
+                    res = probe.probe_file(url, headers)
+            except Exception as e:
+                res = {"error": str(e).split("\n")[0][:200]}
+            self._relay.done.emit((gen, res))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _probe_done(self, payload):
+        gen, res = payload
+        if gen != self._gen:
+            return              # the link changed meanwhile
+        self._info = res
+        if res.get("kind") == "file" and res.get("name") and not self.name.text().strip():
+            self.name.setPlaceholderText(res["name"])
+        if res.get("kind") == "video":
+            sizes = res.get("sizes") or {}
+            for i in range(self.quality.count()):
+                key = self.quality.itemData(i)
+                base = dict(QUALITIES)[key]
+                sz = sizes.get(key)
+                self.quality.setItemText(i, f"{base}   —   {'~' + human_size(sz) if sz else 'size unknown'}")
+        self._render_info()
+
+    def _render_info(self, checking=False):
+        if self._gen == 0:
+            return
+        kind = self.kind.currentIndex()
+        url = self.url.text().strip()
+        info = self._info
+        folder = self.folder.text().strip() or self.mgr.settings["save_dir"]
+        free = probe.free_space(folder)
+        free_txt = f"{human_size(free)} free on {probe.drive_name(folder)}" if free is not None else ""
+        guess = os.path.basename(urlparse(url).path) if url.lower().startswith("http") else ""
+        if kind == 2:
+            ic, color = "magnet", T("teal")
+        elif kind == 1:
+            ic, color = CATEGORY_ICON["Video"]
+        else:
+            ic, color = CATEGORY_ICON.get(category_of(guess or "x"), CATEGORY_ICON["Other"])
+        self.card.show()
+        if checking or info is None:
+            hint = f"{human_size(self._hint_size)}" if self._hint_size else ""
+            self.card.set(ic, color, guess or url, hint, "Checking size…  " + free_txt)
+            self.adjustSize()
+            return
+        if "error" in info:
+            self.card.set(ic, color, guess or url, "", free_txt,
+                          f"Couldn't check this link: {info['error']}")
+            self.adjustSize()
+            return
+        size = None
+        details = []
+        warn = ""
+        name = info.get("name") or guess or url
+        if info["kind"] == "file":
+            size = info.get("size") or self._hint_size or None
+            ic, color = CATEGORY_ICON.get(category_of(name), CATEGORY_ICON["Other"])
+            if not size:
+                details.append("The server didn't say how big it is")
+            details.append("Pause & resume: yes" if info.get("resumable") else
+                           "Pause & resume: no — if paused it starts over")
+            if info.get("page"):
+                warn = "This link opens a web page, not a file. For a video on it, choose Type → Video."
+        elif info["kind"] == "video":
+            size = (info.get("sizes") or {}).get(self.quality.currentData())
+            if info.get("duration"):
+                details.append(f"Length {human_time(info['duration'])}")
+            if info.get("site"):
+                details.append(info["site"])
+            if size:
+                details.append("size is an estimate")
+        else:
+            if info.get("magnet"):
+                details.append("The size appears once the torrent connects — you'll pick the files then")
+            elif info.get("files"):
+                details.append(f"{info['files']} file{'s' if info['files'] != 1 else ''}")
+        if free_txt:
+            details.append(free_txt)
+        if size and free is not None and size > free:
+            warn = (f"Not enough space on {probe.drive_name(folder)}: it needs {human_size(size)}, "
+                    f"only {human_size(free)} is free. Choose another folder below.")
+        size_txt = ("~" if info["kind"] == "video" and size else "") + (human_size(size) if size else "Unknown size")
+        self.card.set(ic, color, name, size_txt, "  ·  ".join(details), warn)
+        self.adjustSize()
 
     @staticmethod
     def _guess_kind(text, hint=None):
@@ -2372,9 +2543,29 @@ def shots(out):
             save(dlg, f"settings_{key}_{i}_{name.lower()}")
         dlg.hide()
     w.apply_theme("midnight")
-    a = AddDialog(w, mgr, {"url": "https://example.com/tools/setup.exe", "size": 52_000_000})
+    def fake(dlg, res):
+        dlg._probe_timer.stop()
+        dlg._gen += 1
+        dlg._probe_done((dlg._gen, res))
+    a = AddDialog(w, mgr, {"url": "https://example.com/tools/EdenSetup-2.4.exe"})
     a.show()
-    save(a, "dialog_add")
+    fake(a, {"kind": "file", "name": "EdenSetup-2.4.exe", "size": 87_400_000, "resumable": True,
+             "mime": "application/octet-stream", "final_url": ""})
+    save(a, "dialog_add_file")
+    a.hide()
+    a = AddDialog(w, mgr, {"url": "https://www.youtube.com/watch?v=abc", "type": "video"})
+    a.show()
+    fake(a, {"kind": "video", "name": "Project walkthrough — EDEN Walk", "duration": 754, "site": "Youtube",
+             "sizes": {"best": 912_000_000, "1080": 412_000_000, "720": 198_000_000, "480": 96_000_000,
+                       "360": 52_000_000, "audio": 18_000_000}})
+    a.quality.setCurrentIndex(1)
+    save(a, "dialog_add_video")
+    a.hide()
+    a = AddDialog(w, mgr, {"url": "https://example.com/big.iso"})
+    a.show()
+    fake(a, {"kind": "file", "name": "big.iso", "size": 50 * 1024 ** 4, "resumable": False,
+             "mime": "application/octet-stream", "final_url": ""})
+    save(a, "dialog_add_nospace")
     a.hide()
     cd = CountdownDialog(w, "shutdown", "All downloads finished.")
     cd.timer.stop()

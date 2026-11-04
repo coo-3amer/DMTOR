@@ -145,6 +145,9 @@ QTableWidget#List::item:selected {{ background:{c['acc_dim']}; color:{c['strong'
 QHeaderView::section {{ background:{c['bg']}; color:{c['muted']}; border:none; border-bottom:1px solid {c['line']};
     padding:9px 10px; font-weight:600; font-size:9pt; }}
 
+#InfoCard {{ background:{c['field']}; border:1px solid {c['line']}; border-radius:12px; }}
+#InfoName {{ color:{c['strong']}; font-weight:600; }}
+#InfoSize {{ color:{c['acc']}; font-size:15pt; font-weight:700; }}
 #EmptyTitle {{ font-size:14pt; font-weight:600; color:{c['strong']}; }}
 #Muted {{ color:{c['muted']}; }}
 #Section {{ color:{c['muted']}; font-size:8pt; font-weight:700; padding-top:6px; }}

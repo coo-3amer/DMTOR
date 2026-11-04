@@ -299,22 +299,13 @@ class FileDownload(Item):
         return s
 
     def _probe(self):
-        s = self._session()
-        r = s.get(self.url, headers={"Range": "bytes=0-"}, stream=True, timeout=30)
-        try:
-            r.raise_for_status()
-            self.real_url = r.url
-            if not self.name:
-                self.name = safe_name(filename_from_response(r, self.url))
-            if r.status_code == 206:
-                m = re.search(r"/(\d+)", r.headers.get("Content-Range", ""))
-                self.total = int(m.group(1)) if m else 0
-                self.resumable = self.total > 0
-            else:
-                self.total = int(r.headers.get("Content-Length") or 0)
-                self.resumable = False
-        finally:
-            r.close()
+        from probe import probe_file
+        info = probe_file(self.url, self.headers, timeout=30)
+        self.real_url = info["final_url"]
+        if not self.name:
+            self.name = info["name"]
+        self.total = info["size"]
+        self.resumable = info["resumable"]
 
     def _part_complete(self, p):
         if p[1] == -1:
