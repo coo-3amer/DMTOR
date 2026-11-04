@@ -1273,6 +1273,7 @@ class MainWindow(QMainWindow):
             color = CATEGORY_ICON[k][1] if k in CATEGORY_ICON else T("side_text")
             li.setIcon(icon(li.data(Qt.UserRole + 2), color, 18))
         self._empty_art.setPixmap(pixmap("active", T("faint"), 72))
+        self._side_settings.setIcon(icon("settings", T("side_text"), 18))
         b1, b2 = self._empty_btns
         b1.setIcon(icon("add", T("on_acc"), 18, 2.1))
         if b2:
@@ -1312,7 +1313,7 @@ class MainWindow(QMainWindow):
     def _apply_when_ui(self):
         key = self.mgr.settings.get("after_done", "none")
         b = self.buttons["when_done"]
-        short = {"none": "When done", "sleep": "Then: Sleep", "shutdown": "Then: Shut down", "quit": "Then: Close"}
+        short = {"none": "When done", "sleep": "Sleep", "shutdown": "Shut down", "quit": "Close"}
         b.setText(short.get(key, "When done"))
         b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if key != "none" else Qt.ToolButtonIconOnly)
         b.setIcon(icon("power", T("info_fg") if key != "none" else T("icon"), 18))
@@ -1506,7 +1507,7 @@ class MainWindow(QMainWindow):
         on = s.get("limit_on", False)
         b = self.buttons["speed"]
         down, t_down, t_up = self.mgr.effective_limits()
-        b.setText(f"Max {fmt_rate(down)}" if on and down else ("Limited" if on else "Unlimited"))
+        b.setText(fmt_rate(down) if on and down else ("Limited" if on else "Unlimited"))
         b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if on else Qt.ToolButtonIconOnly)
         b.setIcon(icon("gauge", T("info_fg") if on else T("icon"), 18))
         if on:
@@ -1667,6 +1668,17 @@ class MainWindow(QMainWindow):
         self.filters.currentItemChanged.connect(self._filter_changed)
         v.addWidget(self.filters, 1)
 
+        sb = QToolButton()
+        sb.setObjectName("SideBtn")
+        sb.setText("Settings")
+        sb.setIcon(icon("settings", T("side_text"), 18))
+        sb.setIconSize(QSize(18, 18))
+        sb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        sb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        sb.setCursor(Qt.PointingHandCursor)
+        sb.clicked.connect(lambda: self.settings_dialog())
+        self._side_settings = sb
+        v.addWidget(sb)
         self.footer = label("", "SideFooter")
         v.addWidget(self.footer)
         return panel
@@ -1736,7 +1748,6 @@ class MainWindow(QMainWindow):
         cap = btn("capture", "Catching on", "catch", self.toggle_capture,
                   "Catch downloads from the browser — click to turn off (Ctrl+Shift+C)", icon_only=True)
         cap.setObjectName("Capture")
-        btn("settings", "Settings", "settings", self.settings_dialog, "Settings", icon_only=True)
         return tb
 
     def _build_table(self):

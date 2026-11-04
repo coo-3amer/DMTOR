@@ -108,6 +108,9 @@ QToolTip {{ background:{c['panel']}; color:{c['text']}; border:1px solid {c['lin
 #SidePanel {{ background:{c['side']}; border-right:1px solid {c['line2']}; }}
 #BrandName {{ font-size:13pt; font-weight:700; color:{c['strong']}; }}
 #BrandSub {{ color:{c['muted']}; font-size:8.5pt; }}
+QToolButton#SideBtn {{ background:transparent; border:none; border-radius:8px; color:{c['side_text']};
+    padding:8px 10px; margin:0 10px 8px 10px; text-align:left; }}
+QToolButton#SideBtn:hover {{ background:{c['hover']}; color:{c['strong']}; }}
 #SideFooter {{ color:{c['muted']}; font-size:9pt; padding:12px 16px; border-top:1px solid {c['line2']}; }}
 QListWidget#Filters {{ background:transparent; border:none; padding:4px 0; }}
 QListWidget#Filters::item {{ color:{c['side_text']}; padding:8px 10px; margin:1px 10px; border-radius:8px; }}
