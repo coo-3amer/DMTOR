@@ -1,4 +1,4 @@
-"""Scheduler, "when done" actions, clipboard filter and auto-update for DMTOR."""
+"""Scheduler, "when done" actions, clipboard filter and auto-update for EDENLOAD."""
 import os
 import re
 import sys
@@ -9,11 +9,11 @@ from urllib.parse import urlparse
 
 import requests
 
-VERSION = "1.6"
-REPO = "coo-3amer/DMTOR"
+VERSION = "1.7"
+REPO = "coo-3amer/DMTOR"   # GitHub repository (its name stays)
 
 ACTIONS = [("none", "Do nothing"), ("sleep", "Put the computer to sleep"),
-           ("shutdown", "Shut down the computer"), ("quit", "Close DMTOR")]
+           ("shutdown", "Shut down the computer"), ("quit", "Close EDENLOAD")]
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 ACTIVE = ("downloading", "queued", "pausing")
@@ -183,7 +183,7 @@ def is_newer(remote, local=VERSION):
 def check_latest(timeout=10):
     """{'version', 'url', 'page', 'notes', 'size'} for the latest release. Raises on failure."""
     r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=timeout,
-                     headers={"Accept": "application/vnd.github+json", "User-Agent": f"DMTOR/{VERSION}"})
+                     headers={"Accept": "application/vnd.github+json", "User-Agent": f"EDENLOAD/{VERSION}"})
     if r.status_code == 404:
         raise IOError("No public releases found")
     r.raise_for_status()
@@ -197,7 +197,7 @@ def check_latest(timeout=10):
 
 def download_update(url, dest, progress=None, stop=None):
     tmp = dest + ".part"
-    with requests.get(url, stream=True, timeout=30, headers={"User-Agent": f"DMTOR/{VERSION}"}) as r:
+    with requests.get(url, stream=True, timeout=30, headers={"User-Agent": f"EDENLOAD/{VERSION}"}) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
@@ -214,7 +214,7 @@ def download_update(url, dest, progress=None, stop=None):
 
 
 def run_installer(path):
-    """Start the new Setup silently; it closes DMTOR, updates it and opens it again."""
+    """Start the new Setup silently; it closes EDENLOAD, updates it and opens it again."""
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen([path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
                      creationflags=flags, close_fds=True)

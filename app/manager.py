@@ -12,20 +12,23 @@ from torrent import TorrentDownload
 
 def data_dir():
     base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
-    d = os.path.join(base, "DMTOR")
-    old = os.path.join(base, "EdenDM")          # earlier name: carry the download list over once
-    if not os.path.isdir(d) and os.path.isdir(old):
-        import shutil
-        try:
-            shutil.copytree(old, d)
-        except OSError:
-            pass
+    d = os.path.join(base, "EDENLOAD")
+    if not os.path.isdir(d):                     # earlier names: carry the download list over once
+        for name in ("DMTOR", "EdenDM"):
+            old = os.path.join(base, name)
+            if os.path.isdir(old):
+                import shutil
+                try:
+                    shutil.copytree(old, d)
+                except OSError:
+                    pass
+                break
     os.makedirs(d, exist_ok=True)
     return d
 
 
 DEFAULT_SETTINGS = {
-    "save_dir": os.path.join(os.path.expanduser("~"), "Downloads", "DMTOR Downloads"),
+    "save_dir": os.path.join(os.path.expanduser("~"), "Downloads", "EDENLOAD Downloads"),
     "max_parallel": 3,
     "segments": 8,
     "categorize": True,

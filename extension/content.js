@@ -59,8 +59,8 @@
       label.textContent = "Sending\u2026";
       chrome.runtime.sendMessage({ action: "video", url: location.href, title: document.title }, (res) => {
         btn.classList.remove("ok", "warn");
-        if (res && res.ok) { label.textContent = "Sent to DMTOR"; btn.classList.add("ok"); }
-        else if (res && res.reason === "app") { label.textContent = "Open DMTOR first"; btn.classList.add("warn"); }
+        if (res && res.ok) { label.textContent = "Sent to EDENLOAD"; btn.classList.add("ok"); }
+        else if (res && res.reason === "app") { label.textContent = "Open EDENLOAD first"; btn.classList.add("warn"); }
         else { label.textContent = "Something went wrong"; btn.classList.add("warn"); }
         setTimeout(() => { label.textContent = TEXT; btn.classList.remove("ok", "warn"); }, 2500);
       });

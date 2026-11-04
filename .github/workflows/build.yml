@@ -1,4 +1,4 @@
-name: Build DMTOR installer
+name: Build EDENLOAD installer
 
 on:
   push:
@@ -24,10 +24,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt libtorrent pyinstaller
 
-      - name: Build DMTOR (PyInstaller)
+      - name: Build EDENLOAD (PyInstaller)
         run: >
           pyinstaller --noconfirm --clean --onedir --windowed
-          --name DMTOR --icon assets/app.ico
+          --name EDENLOAD --icon assets/app.ico
           --add-data "assets;assets"
           --paths app
           --hidden-import libtorrent
@@ -42,12 +42,12 @@ jobs:
           Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
           $exe = Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          Copy-Item $exe.FullName dist/DMTOR/ffmpeg.exe
+          Copy-Item $exe.FullName dist/EDENLOAD/ffmpeg.exe
 
       - name: Self-test the exe
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist/DMTOR/DMTOR.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -PassThru
+          $p = Start-Process -FilePath dist/EDENLOAD/EDENLOAD.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -PassThru
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Self-test timed out" }
           Get-Content selftest.txt
           if ($p.ExitCode -ne 0) { throw "Self-test failed" }
@@ -55,7 +55,7 @@ jobs:
       - name: Screenshots of the real windows (every theme)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist/DMTOR/DMTOR.exe -ArgumentList '--shots', "$PWD\shots" -PassThru
+          $p = Start-Process -FilePath dist/EDENLOAD/EDENLOAD.exe -ArgumentList '--shots', "$PWD\shots" -PassThru
           if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Screenshot run timed out" }
           Get-ChildItem shots | Select-Object Name, Length
           if (Test-Path shots/error.txt) { Get-Content shots/error.txt }
@@ -67,7 +67,7 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           $ver = (Select-String -Path app/features.py -Pattern 'VERSION = "([0-9.]+)"').Matches[0].Groups[1].Value
-          & $iscc "/DAppVersion=$ver.0" installer/DMTOR.iss
+          & $iscc "/DAppVersion=$ver.0" installer/EDENLOAD.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
           Get-ChildItem output
           "VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -80,29 +80,29 @@ jobs:
           $tag = "v$env:VER"
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag output/DMTOR-Setup.exe --title "DMTOR $env:VER" --notes "Download DMTOR-Setup.exe below and double-click it to install."
+            gh release create $tag output/EDENLOAD-Setup.exe --title "EDENLOAD $env:VER" --notes "Download EDENLOAD-Setup.exe below and double-click it to install."
           } else {
-            gh release upload $tag output/DMTOR-Setup.exe --clobber
+            gh release upload $tag output/EDENLOAD-Setup.exe --clobber
           }
 
       - name: Keep latest installer on the 'download' branch
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force pub | Out-Null
-          Copy-Item output/DMTOR-Setup.exe pub/
+          Copy-Item output/EDENLOAD-Setup.exe pub/
           if (Test-Path shots) { Copy-Item -Recurse shots pub/shots }
           Set-Location pub
           git init -q -b download
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add -A
-          git commit -q -m "DMTOR $env:VER installer"
+          git commit -q -m "EDENLOAD $env:VER installer"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" download
 
       - uses: actions/upload-artifact@v4
         with:
-          name: DMTOR-Setup
-          path: output/DMTOR-Setup.exe
+          name: EDENLOAD-Setup
+          path: output/EDENLOAD-Setup.exe
           retention-days: 30
 
       - uses: actions/upload-artifact@v4

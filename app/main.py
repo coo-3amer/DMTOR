@@ -1,4 +1,4 @@
-"""DMTOR - main window."""
+"""EDENLOAD - main window."""
 import os
 import re
 import sys
@@ -32,8 +32,8 @@ from video import QUALITIES, ffmpeg_path
 import torrent
 from torrent import is_torrent_source
 
-APP_NAME = "DMTOR"
-LEGACY = "EdenDM"   # name of earlier versions; cleaned up from the registry
+APP_NAME = "EDENLOAD"
+LEGACIES = ("DMTOR", "EdenDM")   # names of earlier versions; cleaned up from the registry
 VIDEO_SITES = re.compile(
     r"(youtube\.com|youtu\.be|facebook\.com|fb\.watch|instagram\.com|tiktok\.com|twitter\.com|"
     r"(^|//|\.)x\.com|vimeo\.com|dailymotion\.com|twitch\.tv|reddit\.com|soundcloud\.com)", re.I)
@@ -84,22 +84,23 @@ def set_startup(enabled):
                          r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
     try:
         if enabled:
-            winreg.SetValueEx(key, "DMTOR", 0, winreg.REG_SZ, launch_cmd("--tray"))
+            winreg.SetValueEx(key, "EDENLOAD", 0, winreg.REG_SZ, launch_cmd("--tray"))
         else:
             try:
-                winreg.DeleteValue(key, "DMTOR")
+                winreg.DeleteValue(key, "EDENLOAD")
             except FileNotFoundError:
                 pass
-        try:
-            winreg.DeleteValue(key, LEGACY)
-        except FileNotFoundError:
-            pass
+        for old in LEGACIES:
+            try:
+                winreg.DeleteValue(key, old)
+            except FileNotFoundError:
+                pass
     finally:
         winreg.CloseKey(key)
 
 
 def set_torrent_assoc(enabled):
-    """Open magnet: links and .torrent files with DMTOR (per-user, no admin needed)."""
+    """Open magnet: links and .torrent files with EDENLOAD (per-user, no admin needed)."""
     if sys.platform != "win32":
         return
     import winreg
@@ -134,12 +135,13 @@ def set_torrent_assoc(enabled):
         put("magnet", {"": "URL:Magnet link", "URL Protocol": ""})
         put("magnet\\DefaultIcon", {"": exe_icon})
         put("magnet\\shell\\open\\command", {"": cmd})
-        drop(LEGACY + ".torrent")
-        put("DMTOR.torrent", {"": "Torrent file"})
-        put("DMTOR.torrent\\DefaultIcon", {"": exe_icon})
-        put("DMTOR.torrent\\shell\\open\\command", {"": cmd})
-        put(".torrent", {"": "DMTOR.torrent"})
-        put(".torrent\\OpenWithProgids", {"DMTOR.torrent": ""})
+        for old in LEGACIES:
+            drop(old + ".torrent")
+        put("EDENLOAD.torrent", {"": "Torrent file"})
+        put("EDENLOAD.torrent\\DefaultIcon", {"": exe_icon})
+        put("EDENLOAD.torrent\\shell\\open\\command", {"": cmd})
+        put(".torrent", {"": "EDENLOAD.torrent"})
+        put(".torrent\\OpenWithProgids", {"EDENLOAD.torrent": ""})
     else:
         try:
             k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, base + "magnet\\shell\\open\\command")
@@ -147,13 +149,14 @@ def set_torrent_assoc(enabled):
             winreg.CloseKey(k)
         except OSError:
             current = ""
-        if "DMTOR" in current or LEGACY in current or sys.executable in current:
+        if any(n in current for n in ("EDENLOAD",) + LEGACIES) or sys.executable in current:
             drop("magnet")
-        drop("DMTOR.torrent")
-        drop(LEGACY + ".torrent")
+        drop("EDENLOAD.torrent")
+        for old in LEGACIES:
+            drop(old + ".torrent")
         try:
             k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, base + ".torrent", 0, winreg.KEY_ALL_ACCESS)
-            if winreg.QueryValueEx(k, "")[0] in ("DMTOR.torrent", LEGACY + ".torrent"):
+            if winreg.QueryValueEx(k, "")[0] in tuple(n + ".torrent" for n in ("EDENLOAD",) + LEGACIES):
                 winreg.DeleteValue(k, "")
             winreg.CloseKey(k)
         except OSError:
@@ -738,7 +741,7 @@ class SpeedDialog(QDialog):
 class CountdownDialog(QDialog):
     """'Shutting down in 60 s' with Cancel / Do it now."""
     WORDS = {"sleep": ("Going to sleep", "sleep"), "shutdown": ("Shutting down", "shut down"),
-             "quit": ("Closing DMTOR", "close")}
+             "quit": ("Closing EDENLOAD", "close")}
 
     def __init__(self, parent, action, why, seconds=60):
         super().__init__(parent)
@@ -917,7 +920,7 @@ class SettingsDialog(QDialog):
             "", label("STARTUP", "Section"), self.startup,
             "", label("CLIPBOARD", "Section"), self.clip, ind,
             label("Copy a link to a file (.exe, .zip, .mp4, .pdf…) or a magnet link anywhere, "
-                  "and DMTOR asks if you want to download it.", "Muted", True),
+                  "and EDENLOAD asks if you want to download it.", "Muted", True),
             "", label("BROWSER", "Section"), hbox(guide_btn))
 
         # ---------- Downloads
@@ -1013,7 +1016,7 @@ class SettingsDialog(QDialog):
         self.ask_files.setChecked(s.get("torrent_ask_files", True))
         self.seed = QCheckBox("Keep seeding torrents after they finish")
         self.seed.setChecked(s.get("seed_after", False))
-        self.assoc = QCheckBox("Open magnet links and .torrent files with DMTOR")
+        self.assoc = QCheckBox("Open magnet links and .torrent files with EDENLOAD")
         self.assoc.setChecked(s.get("torrent_assoc", False))
         self.assoc.setEnabled(sys.platform == "win32")
         torrents = page(self.ask_files, self.seed, self.assoc)
@@ -1027,7 +1030,7 @@ class SettingsDialog(QDialog):
         self.up_status = label(getattr(parent, "update_status", "") or "", "Muted", True)
         updates = page(form(("Installed version", label(features.VERSION))), self.auto_up,
                        hbox(check), self.up_status,
-                       label("When a new version is out, a bar appears at the top of DMTOR with an "
+                       label("When a new version is out, a bar appears at the top of EDENLOAD with an "
                              "“Update now” button. Your downloads and settings are kept.", "Muted", True))
 
         self.tabs = QTabWidget()
@@ -1070,7 +1073,7 @@ class SettingsDialog(QDialog):
             info = features.check_latest()
             if features.is_newer(info["version"]):
                 self.up_status.setText(f"Version {info['version']} is available — use “Update now” "
-                                       "in the bar at the top of DMTOR.")
+                                       "in the bar at the top of EDENLOAD.")
                 self.win._update_result = ("ok", info, True)
             else:
                 self.up_status.setText(f"You have the latest version ({features.VERSION}).")
@@ -1237,7 +1240,7 @@ class MainWindow(QMainWindow):
     def _build_tray_menu(self):
         menu = self.tray_menu
         menu.clear()
-        menu.addAction(icon("all", T("icon"), 16), "Open DMTOR", self.bring_front)
+        menu.addAction(icon("all", T("icon"), 16), "Open EDENLOAD", self.bring_front)
         menu.addAction(icon("add", T("icon"), 16), "Add URL…", self.add_dialog)
         menu.addAction(icon("magnet", T("teal"), 16), "Open torrent file…", self.open_torrent_files)
         menu.addAction(icon("link", T("icon"), 16), "Connect browser…", open_browser_guide)
@@ -1414,13 +1417,13 @@ class MainWindow(QMainWindow):
         if features.is_newer(data["version"]) and (manual or data["version"] != self.mgr.settings.get("skip_version")):
             self._update_info = data
             self.update_status = f"Version {data['version']} is available."
-            self._banner_text.setText(f"<b>DMTOR {data['version']}</b> is available — you have {features.VERSION}.")
+            self._banner_text.setText(f"<b>EDENLOAD {data['version']}</b> is available — you have {features.VERSION}.")
             self._banner_bar.hide()
             for b in (self._banner_go, self._banner_skip, self._banner_later):
                 b.show()
                 b.setEnabled(True)
             self.banner.show()
-            self.tray.showMessage(APP_NAME, f"DMTOR {data['version']} is available. Open DMTOR to update.",
+            self.tray.showMessage(APP_NAME, f"EDENLOAD {data['version']} is available. Open EDENLOAD to update.",
                                   QSystemTrayIcon.Information, 5000)
         else:
             self.update_status = f"You have the latest version ({features.VERSION})."
@@ -1437,7 +1440,7 @@ class MainWindow(QMainWindow):
         info = self._update_info
         if not info:
             return
-        self._banner_text.setText(f"Downloading DMTOR {info['version']}…")
+        self._banner_text.setText(f"Downloading EDENLOAD {info['version']}…")
         self._banner_bar.setValue(0)
         self._banner_bar.show()
         self._banner_go.setEnabled(False)
@@ -1446,7 +1449,7 @@ class MainWindow(QMainWindow):
         self._banner_later.clicked.disconnect()
         self._banner_later.clicked.connect(self._cancel_update)
         self._update_stop.clear()
-        dest = os.path.join(tempfile.gettempdir(), f"DMTOR-Setup-{info['version']}.exe")
+        dest = os.path.join(tempfile.gettempdir(), f"EDENLOAD-Setup-{info['version']}.exe")
 
         def prog(done, total):
             self._update_progress = (done, total, None)
@@ -1479,7 +1482,7 @@ class MainWindow(QMainWindow):
                 self._banner_bar.hide()
                 self._banner_go.setEnabled(True)
             return
-        self._banner_text.setText("Installing the update — DMTOR will reopen by itself…")
+        self._banner_text.setText("Installing the update — EDENLOAD will reopen by itself…")
         QApplication.processEvents()
         self.mgr.shutdown()
         try:
@@ -1639,7 +1642,7 @@ class MainWindow(QMainWindow):
         bh.addWidget(logo)
         names = QVBoxLayout()
         names.setSpacing(0)
-        names.addWidget(label("DMTOR", "BrandName"))
+        names.addWidget(label("EDENLOAD", "BrandName"))
         names.addWidget(label("Download Manager", "BrandSub"))
         bh.addLayout(names)
         bh.addStretch()
@@ -1733,7 +1736,7 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
         wd = btn("when_done", "When done", "power", lambda: wd.showMenu(),
-                 "Sleep, shut down or close DMTOR when all downloads finish")
+                 "Sleep, shut down or close EDENLOAD when all downloads finish")
         wd.setObjectName("WhenDone")
         wd.setPopupMode(QToolButton.InstantPopup)
         self.when_menu = QMenu(wd)
@@ -2332,7 +2335,7 @@ def shots(out):
     w.resize(1240, 660)
     w.show()
     w._update_info = {"version": "1.7", "url": "", "page": "", "notes": "", "size": 0}
-    w._banner_text.setText(f"<b>DMTOR 1.7</b> is available — you have {features.VERSION}.")
+    w._banner_text.setText(f"<b>EDENLOAD 1.7</b> is available — you have {features.VERSION}.")
     w.banner.show()
     w.table.selectRow(0)
 
@@ -2416,7 +2419,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DMTOR.DownloadManager")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EDENLOAD.DownloadManager")
         except Exception:
             pass
     app = QApplication(sys.argv)

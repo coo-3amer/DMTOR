@@ -1,4 +1,4 @@
-"""DMTOR - core segmented downloader with pause/resume."""
+"""EDENLOAD - core segmented downloader with pause/resume."""
 import os
 import re
 import time

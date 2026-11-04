@@ -83,7 +83,7 @@ class Engine:
         cat = lt.alert.category_t
         self.ses = lt.session({
             "listen_interfaces": "0.0.0.0:6881,[::]:6881",
-            "user_agent": "DMTOR/1.5",
+            "user_agent": "EDENLOAD/1.5",
             "enable_dht": True, "enable_lsd": True,
             "enable_upnp": True, "enable_natpmp": True,
             "alert_mask": cat.error_notification | cat.status_notification | cat.storage_notification,
