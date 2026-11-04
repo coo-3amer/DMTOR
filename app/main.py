@@ -541,7 +541,7 @@ class AddDialog(QDialog):
         if free_txt:
             details.append(free_txt)
         if size and free is not None and size > free:
-            warn = (f"Not enough space on {probe.drive_name(folder)}: it needs {human_size(size)}, "
+            warn = (f"Not enough space on {probe.drive_name(folder)} — it needs {human_size(size)}, "
                     f"only {human_size(free)} is free. Choose another folder below.")
         size_txt = ("~" if info["kind"] == "video" and size else "") + (human_size(size) if size else "Unknown size")
         self.card.set(ic, color, name, size_txt, "  ·  ".join(details), warn)
