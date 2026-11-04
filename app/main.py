@@ -3,6 +3,9 @@ import os
 import re
 import sys
 import queue
+import time
+import tempfile
+import threading
 import subprocess
 import urllib.request
 
@@ -14,10 +17,13 @@ from PySide6.QtWidgets import (
     QLabel, QFileDialog, QSpinBox, QCheckBox, QMessageBox, QSystemTrayIcon, QMenu,
     QHeaderView, QAbstractItemView, QWidget, QFrame, QListWidget, QListWidgetItem,
     QStackedWidget, QSizePolicy, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem,
-    QTreeWidgetItemIterator,
+    QTreeWidgetItemIterator, QTabWidget, QTimeEdit, QProgressBar, QScrollArea, QGridLayout,
 )
+from PySide6.QtCore import QTime
 
 import theme
+import features
+from features import ACTIONS, DAYS
 from icons import icon, pixmap, CATEGORY_ICON
 from core import human_size, human_time, category_of, fmt_rate
 from manager import Manager
@@ -33,9 +39,17 @@ VIDEO_SITES = re.compile(
     r"(^|//|\.)x\.com|vimeo\.com|dailymotion\.com|twitch\.tv|reddit\.com|soundcloud\.com)", re.I)
 
 
+T = theme.c   # T("icon") → color of the active theme
+
+
 def resource(name):
     base = getattr(sys, "_MEIPASS", os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
     return os.path.normpath(os.path.join(base, "assets", name))
+
+
+def app_icon_path():
+    p = resource(f"app_{theme.KEY}.png")
+    return p if os.path.isfile(p) else resource("app.png")
 
 
 def asset_url(name):
@@ -197,21 +211,21 @@ class ProgressDelegate(QStyledItemDelegate):
     def paint(self, p, opt, idx):
         super().paint(p, opt, idx)
         frac, status, text = idx.data(Qt.UserRole) or (0.0, "queued", "")
-        color = QColor(theme.STATUS.get(status, ("", theme.MUTED))[1])
+        color = QColor(theme.status(status)[1])
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
         r = opt.rect.adjusted(12, 0, -12, 0)
         tw = 58
         bar = QRectF(r.left(), r.center().y() - 3, max(10, r.width() - tw - 10), 6)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#262b33"))
+        p.setBrush(QColor(T("track")))
         p.drawRoundedRect(bar, 3, 3)
         if frac > 0:
             fill = QRectF(bar)
             fill.setWidth(max(6.0, bar.width() * min(frac, 1.0)))
             p.setBrush(color)
             p.drawRoundedRect(fill, 3, 3)
-        p.setPen(QColor("#c9ced6"))
+        p.setPen(QColor(T("progress_text")))
         p.drawText(QRectF(r.right() - tw, r.top(), tw, r.height()), Qt.AlignVCenter | Qt.AlignRight, text)
         p.restore()
 
@@ -220,7 +234,7 @@ class StatusDelegate(QStyledItemDelegate):
     def paint(self, p, opt, idx):
         super().paint(p, opt, idx)
         status = idx.data(Qt.UserRole) or "queued"
-        text, color = theme.STATUS.get(status, (status, theme.MUTED))
+        text, color = theme.status(status)
         extra = idx.data(Qt.UserRole + 1)
         if extra:
             text = f"{text} {extra}"
@@ -252,7 +266,7 @@ class AddDialog(QDialog):
         self.url.setPlaceholderText("https://…   or   magnet:?…")
         paste = QToolButton()
         paste.setObjectName("Icon")
-        paste.setIcon(icon("link", "#d8dce2", 18))
+        paste.setIcon(icon("link", T("icon"), 18))
         paste.setIconSize(QSize(18, 18))
         paste.setToolTip("Paste from clipboard")
         paste.setCursor(Qt.PointingHandCursor)
@@ -265,7 +279,7 @@ class AddDialog(QDialog):
         pick.setObjectName("Icon")
         pick.setText(" .torrent file…")
         pick.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        pick.setIcon(icon("magnet", "#2dd4bf", 18))
+        pick.setIcon(icon("magnet", T("teal"), 18))
         pick.setIconSize(QSize(18, 18))
         pick.setToolTip("Open a .torrent file")
         pick.setCursor(Qt.PointingHandCursor)
@@ -283,7 +297,7 @@ class AddDialog(QDialog):
         self.folder = QLineEdit(mgr.settings["save_dir"])
         browse = QToolButton()
         browse.setObjectName("Icon")
-        browse.setIcon(icon("folder", "#d8dce2", 18))
+        browse.setIcon(icon("folder", T("icon"), 18))
         browse.setIconSize(QSize(18, 18))
         browse.setToolTip("Choose folder")
         browse.setCursor(Qt.PointingHandCursor)
@@ -318,6 +332,10 @@ class AddDialog(QDialog):
                                  "(usually up to 720p).", "Warn", wrap=True)
             form.addRow(self.ff_note)
 
+        sch = mgr.settings
+        self.sched = QCheckBox(f"Add to the schedule (starts at {sch.get('schedule_start', '02:00')})")
+        self.sched.setVisible(bool(sch.get("schedule_on")))
+        form.addRow(self.sched)
         now = primary(QPushButton("Download now"))
         now.setDefault(True)
         later = QPushButton("Download later")
@@ -401,6 +419,8 @@ class AddDialog(QDialog):
             QMessageBox.warning(self, APP_NAME, "Please enter a valid link (http://, https:// or magnet:)")
             return
         self.choice = choice
+        if self.sched.isChecked():
+            self.choice = "later"     # it waits for the schedule
         self.accept()
 
     def make_item(self):
@@ -504,7 +524,7 @@ class FilesDialog(QDialog):
                 node = folders.get(key)
                 if node is None:
                     node = QTreeWidgetItem([folder, ""])
-                    node.setIcon(0, icon("folder", "#e8c26a", 18))
+                    node.setIcon(0, icon("folder", T("folder"), 18))
                     node.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate)
                     node.setData(1, Qt.UserRole, 0)
                     (parent.addChild(node) if parent else self.tree.addTopLevelItem(node))
@@ -715,35 +735,279 @@ class SpeedDialog(QDialog):
         self.accept()
 
 
+class CountdownDialog(QDialog):
+    """'Shutting down in 60 s' with Cancel / Do it now."""
+    WORDS = {"sleep": ("Going to sleep", "sleep"), "shutdown": ("Shutting down", "shut down"),
+             "quit": ("Closing DMTOR", "close")}
+
+    def __init__(self, parent, action, why, seconds=60):
+        super().__init__(parent)
+        self.left = seconds
+        self.total = seconds
+        title, verb = self.WORDS.get(action, ("Finishing", "continue"))
+        self.title = title
+        self.setWindowTitle(APP_NAME)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.setMinimumWidth(420)
+        ic = QLabel()
+        ic.setPixmap(pixmap("power", T("acc"), 40))
+        self.big = label("", "Big")
+        self.bar = QProgressBar()
+        self.bar.setRange(0, seconds)
+        self.bar.setValue(seconds)
+        cancel = primary(QPushButton("Cancel"))
+        cancel.setDefault(True)
+        cancel.clicked.connect(self.reject)
+        now = QPushButton(f"{verb.capitalize()} now")
+        now.clicked.connect(self.accept)
+        btns = QHBoxLayout()
+        btns.addStretch()
+        btns.addWidget(now)
+        btns.addWidget(cancel)
+        top = QHBoxLayout()
+        top.addWidget(ic)
+        top.addSpacing(10)
+        col = QVBoxLayout()
+        col.addWidget(label(why, "Muted"))
+        col.addWidget(self.big)
+        top.addLayout(col, 1)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 22, 24, 20)
+        lay.addLayout(top)
+        lay.addSpacing(12)
+        lay.addWidget(self.bar)
+        lay.addSpacing(16)
+        lay.addLayout(btns)
+        self._tick()
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(1000)
+
+    def _tick(self):
+        self.big.setText(f"{self.title} in {self.left} s")
+        self.bar.setValue(self.left)
+        if self.left <= 0:
+            self.timer.stop()
+            self.accept()
+        self.left -= 1
+
+
+def theme_swatch(key):
+    """Small round icon in the theme's accent color (for the theme picker)."""
+    if key == "system":
+        return icon("palette", T("icon"), 18)
+    b = theme.THEMES[key][1]
+    pm = QPixmap(36, 36)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QColor(theme.mix(b["bg"], b["text"], 0.25)))
+    p.setBrush(QColor(b["bg"]))
+    p.drawEllipse(2, 2, 32, 32)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(b["acc"]))
+    p.drawEllipse(11, 11, 14, 14)
+    p.end()
+    pm.setDevicePixelRatio(2)
+    return QIcon(pm)
+
+
+def folder_row(edit, parent, title):
+    browse = QToolButton()
+    browse.setObjectName("Icon")
+    browse.setIcon(icon("folder", T("icon"), 18))
+    browse.setIconSize(QSize(18, 18))
+    browse.setToolTip("Choose folder")
+    browse.setCursor(Qt.PointingHandCursor)
+
+    def pick():
+        d = QFileDialog.getExistingDirectory(parent, title, edit.text() or os.path.expanduser("~"))
+        if d:
+            edit.setText(os.path.normpath(d))
+    browse.clicked.connect(pick)
+    row = QHBoxLayout()
+    row.setSpacing(8)
+    row.addWidget(edit, 1)
+    row.addWidget(browse)
+    return row
+
+
+def page(*rows):
+    """A settings tab: a scrollable column of widgets/layouts ("" = spacer)."""
+    inner = QWidget()
+    v = QVBoxLayout(inner)
+    v.setContentsMargins(4, 18, 12, 8)
+    v.setSpacing(10)
+    for r in rows:
+        if r == "":
+            v.addSpacing(6)
+        elif isinstance(r, QWidget):
+            v.addWidget(r)
+        else:
+            v.addLayout(r)
+    v.addStretch()
+    sc = QScrollArea()
+    sc.setWidgetResizable(True)
+    sc.setFrameShape(QFrame.NoFrame)
+    sc.setWidget(inner)
+    return sc
+
+
+def form(*pairs):
+    f = QFormLayout()
+    f.setHorizontalSpacing(16)
+    f.setVerticalSpacing(12)
+    f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    for a, b in pairs:
+        f.addRow(label(a, "Muted"), b)
+    return f
+
+
+def hbox(*ws, stretch=True):
+    h = QHBoxLayout()
+    h.setSpacing(8)
+    for w in ws:
+        h.addWidget(w) if isinstance(w, QWidget) else h.addLayout(w)
+    if stretch:
+        h.addStretch()
+    return h
+
+
+CATEGORY_FOLDERS = [("Video", "Video"), ("Music", "Music"), ("Programs", "Programs"), ("Documents", "Documents"),
+                    ("Compressed", "Archives"), ("Images", "Images"), ("Torrents", "Torrents"), ("Other", "Other")]
+
+
 class SettingsDialog(QDialog):
-    def __init__(self, parent, mgr):
+    TABS = ["General", "Downloads", "Folders", "Schedule", "Torrents", "Updates"]
+
+    def __init__(self, parent, mgr, tab=None):
         super().__init__(parent)
         self.mgr = mgr
+        self.win = parent
         s = mgr.settings
+        self._orig_theme = s.get("theme", "midnight")
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(520)
+        self.resize(660, 600)
 
+        # ---------- General
+        self.theme = QComboBox()
+        self.theme.setIconSize(QSize(18, 18))
+        for key, text in theme.CHOICES:
+            self.theme.addItem(theme_swatch(key), text, key)
+        self.theme.setCurrentIndex(max(0, self.theme.findData(self._orig_theme)))
+        self.theme.currentIndexChanged.connect(self._preview_theme)
+        self.startup = QCheckBox("Start with Windows (runs next to the clock)")
+        self.startup.setChecked(s.get("startup", False))
+        self.startup.setEnabled(sys.platform == "win32")
+        self.clip = QCheckBox("Watch the clipboard — offer to download copied links")
+        self.clip.setChecked(s.get("clipboard", True))
+        self.clip_video = QCheckBox("Also for video pages (YouTube, Facebook, TikTok…)")
+        self.clip_video.setChecked(s.get("clipboard_video", False))
+        self.clip_video.setEnabled(self.clip.isChecked())
+        self.clip.toggled.connect(self.clip_video.setEnabled)
+        ind = QHBoxLayout()
+        ind.addSpacing(26)
+        ind.addWidget(self.clip_video)
+        guide_btn = QPushButton("  Connect browser…")
+        guide_btn.setIcon(icon("link", T("icon"), 16))
+        guide_btn.clicked.connect(open_browser_guide)
+        general = page(
+            form(("Theme", self.theme)),
+            label("System follows Windows: light during the day if Windows is light, dark otherwise.", "Muted", True),
+            "", label("STARTUP", "Section"), self.startup,
+            "", label("CLIPBOARD", "Section"), self.clip, ind,
+            label("Copy a link to a file (.exe, .zip, .mp4, .pdf…) or a magnet link anywhere, "
+                  "and DMTOR asks if you want to download it.", "Muted", True),
+            "", label("BROWSER", "Section"), hbox(guide_btn))
+
+        # ---------- Downloads
         self.folder = QLineEdit(s["save_dir"])
-        browse = QToolButton()
-        browse.setObjectName("Icon")
-        browse.setIcon(icon("folder", "#d8dce2", 18))
-        browse.setIconSize(QSize(18, 18))
-        browse.clicked.connect(self._browse)
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(self.folder)
-        row.addWidget(browse)
         self.parallel = QSpinBox()
         self.parallel.setRange(1, 10)
         self.parallel.setValue(s["max_parallel"])
         self.segments = QSpinBox()
         self.segments.setRange(1, 32)
         self.segments.setValue(s["segments"])
-        self.categorize = QCheckBox("Sort files into folders (Video, Music, Programs, Documents…)")
+        self.categorize = QCheckBox("Sort files into sub-folders (Video, Music, Programs, Documents…)")
         self.categorize.setChecked(s["categorize"])
-        self.startup = QCheckBox("Start with Windows (runs in the tray)")
-        self.startup.setChecked(s.get("startup", False))
-        self.startup.setEnabled(sys.platform == "win32")
+        speed_btn = QPushButton("  Speed limits…")
+        speed_btn.setIcon(icon("gauge", T("icon"), 16))
+        speed_btn.clicked.connect(lambda: SpeedDialog(self, self.mgr).exec())
+        downloads = page(
+            form(("Download folder", folder_row(self.folder, self, "Choose download folder")),
+                 ("Simultaneous downloads", hbox(self.parallel)),
+                 ("Connections per file", hbox(self.segments))),
+            self.categorize,
+            "", label("SPEED", "Section"), hbox(speed_btn))
+
+        # ---------- Folders
+        dirs = s.get("category_dirs") or {}
+        self.cat_edits = {}
+        rows = []
+        for key, text in CATEGORY_FOLDERS:
+            e = QLineEdit(dirs.get(key, ""))
+            e.setClearButtonEnabled(True)
+            e.setPlaceholderText("Default")
+            self.cat_edits[key] = e
+            ic_name, ic_color = CATEGORY_ICON[key]
+            lab = QLabel()
+            lab.setPixmap(pixmap(ic_name, ic_color, 18))
+            rows.append(hbox(lab, label(text), stretch=False))
+            rows.append(folder_row(e, self, f"Folder for {text}"))
+        self.folder_hint = label("", "Muted", True)
+        self.folder.textChanged.connect(self._folder_hint)
+        self.categorize.toggled.connect(self._folder_hint)
+        self._folder_hint()
+        folders = page(label("Choose where each kind of download is saved. Leave empty to use the default.",
+                             "Muted", True), self.folder_hint, "", *rows)
+
+        # ---------- Schedule
+        self.sch_on = QCheckBox("Turn on the scheduler")
+        self.sch_on.setChecked(s.get("schedule_on", False))
+        self.sch_start = QTimeEdit(QTime.fromString(s.get("schedule_start", "02:00"), "HH:mm"))
+        self.sch_start.setDisplayFormat("hh:mm AP")
+        self.sch_stop_on = QCheckBox("Stop at")
+        self.sch_stop_on.setChecked(s.get("schedule_stop_on", True))
+        self.sch_stop = QTimeEdit(QTime.fromString(s.get("schedule_stop", "08:00"), "HH:mm"))
+        self.sch_stop.setDisplayFormat("hh:mm AP")
+        self.sch_stop.setEnabled(self.sch_stop_on.isChecked())
+        self.sch_stop_on.toggled.connect(self.sch_stop.setEnabled)
+        self.day_btns = []
+        days_row = QHBoxLayout()
+        days_row.setSpacing(6)
+        on_days = s.get("schedule_days", list(range(7)))
+        for i, d in enumerate(DAYS):
+            b = QPushButton(d)
+            b.setCheckable(True)
+            b.setChecked(i in on_days)
+            b.setFixedWidth(54)
+            self.day_btns.append(b)
+            days_row.addWidget(b)
+        days_row.addStretch()
+        self.sch_action = QComboBox()
+        for key, text in ACTIONS:
+            self.sch_action.addItem(text, key)
+        self.sch_action.setCurrentIndex(max(0, self.sch_action.findData(s.get("schedule_action", "none"))))
+        self.sch_box = QWidget()
+        sb = QVBoxLayout(self.sch_box)
+        sb.setContentsMargins(0, 0, 0, 0)
+        sb.setSpacing(10)
+        sb.addLayout(form(("Start at", hbox(self.sch_start)),
+                          ("", hbox(self.sch_stop_on, self.sch_stop)),
+                          ("Days", days_row),
+                          ("When they finish", hbox(self.sch_action))))
+        self.sch_box.setEnabled(self.sch_on.isChecked())
+        self.sch_on.toggled.connect(self.sch_box.setEnabled)
+        schedule = page(
+            label("Download at night or whenever the internet is free. Downloads you add with "
+                  "“Add to the schedule” (or right-click → Add to schedule) start at the start time "
+                  "and pause at the stop time.", "Muted", True),
+            "", self.sch_on, self.sch_box,
+            "", label("TIP", "Section"),
+            label("For a one-time action — like shutting down after the downloads that are running now — "
+                  "use the “When done” button at the top of the window.", "Muted", True))
+
+        # ---------- Torrents
         self.ask_files = QCheckBox("Let me choose which files to download")
         self.ask_files.setChecked(s.get("torrent_ask_files", True))
         self.seed = QCheckBox("Keep seeding torrents after they finish")
@@ -751,29 +1015,28 @@ class SettingsDialog(QDialog):
         self.assoc = QCheckBox("Open magnet links and .torrent files with DMTOR")
         self.assoc.setChecked(s.get("torrent_assoc", False))
         self.assoc.setEnabled(sys.platform == "win32")
+        torrents = page(self.ask_files, self.seed, self.assoc)
 
-        form = QFormLayout()
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(12)
-        form.addRow(label("Download folder", "Muted"), row)
-        form.addRow(label("Simultaneous downloads", "Muted"), self.parallel)
-        form.addRow(label("Connections per file", "Muted"), self.segments)
-        speed_btn = QPushButton("  Speed limits…")
-        speed_btn.setIcon(icon("gauge", "#d8dce2", 16))
-        speed_btn.clicked.connect(lambda: SpeedDialog(self, self.mgr).exec())
-        srow = QHBoxLayout()
-        srow.addWidget(speed_btn)
-        srow.addStretch()
-        form.addRow(label("Speed", "Muted"), srow)
-        guide_btn = QPushButton("  Connect browser…")
-        guide_btn.setIcon(icon("link", "#d8dce2", 16))
-        guide_btn.clicked.connect(open_browser_guide)
-        grow = QHBoxLayout()
-        grow.addWidget(guide_btn)
-        grow.addStretch()
-        form.addRow(label("Chrome / Edge", "Muted"), grow)
+        # ---------- Updates
+        self.auto_up = QCheckBox("Check for updates automatically")
+        self.auto_up.setChecked(s.get("auto_update", True))
+        check = QPushButton("  Check now")
+        check.setIcon(icon("update", T("icon"), 16))
+        check.clicked.connect(self._check_now)
+        self.up_status = label(getattr(parent, "update_status", "") or "", "Muted", True)
+        updates = page(form(("Installed version", label(features.VERSION))), self.auto_up,
+                       hbox(check), self.up_status,
+                       label("When a new version is out, a bar appears at the top of DMTOR with an "
+                             "“Update now” button. Your downloads and settings are kept.", "Muted", True))
+
+        self.tabs = QTabWidget()
+        for w, name in zip((general, downloads, folders, schedule, torrents, updates), self.TABS):
+            self.tabs.addTab(w, name)
+        if tab in self.TABS:
+            self.tabs.setCurrentIndex(self.TABS.index(tab))
 
         ok = primary(QPushButton("Save"))
+        ok.setDefault(True)
         ok.clicked.connect(self._save)
         cancel = QPushButton("Cancel")
         cancel.clicked.connect(self.reject)
@@ -781,35 +1044,63 @@ class SettingsDialog(QDialog):
         btns.addStretch()
         btns.addWidget(cancel)
         btns.addWidget(ok)
-
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, 22, 24, 20)
-        lay.setSpacing(6)
+        lay.setSpacing(8)
         lay.addWidget(label("Settings", "Title"))
-        lay.addSpacing(14)
-        lay.addLayout(form)
-        lay.addSpacing(10)
-        lay.addWidget(self.categorize)
-        lay.addWidget(self.startup)
+        lay.addWidget(self.tabs, 1)
         lay.addSpacing(8)
-        lay.addWidget(label("TORRENTS", "Muted"))
-        lay.addWidget(self.ask_files)
-        lay.addWidget(self.seed)
-        lay.addWidget(self.assoc)
-        lay.addSpacing(18)
         lay.addLayout(btns)
 
-    def _browse(self):
-        d = QFileDialog.getExistingDirectory(self, "Choose download folder", self.folder.text())
-        if d:
-            self.folder.setText(d)
+    def _folder_hint(self, *_):
+        base = self.folder.text().strip() or self.mgr.settings["save_dir"]
+        sub = os.path.join(base, "Video") if self.categorize.isChecked() else base
+        self.folder_hint.setText(f"Default: {sub}  (and the same for each kind)")
+
+    def _preview_theme(self, *_):
+        if hasattr(self.win, "apply_theme"):
+            self.win.apply_theme(self.theme.currentData())
+
+    def _check_now(self):
+        self.up_status.setText("Checking…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            info = features.check_latest()
+            if features.is_newer(info["version"]):
+                self.up_status.setText(f"Version {info['version']} is available — use “Update now” "
+                                       "in the bar at the top of DMTOR.")
+                self.win._update_result = ("ok", info, True)
+            else:
+                self.up_status.setText(f"You have the latest version ({features.VERSION}).")
+        except Exception as e:
+            self.up_status.setText(f"Couldn't check for updates: {e}")
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.mgr.settings["last_update_check"] = time.time()
+
+    def reject(self):
+        if self.theme.currentData() != self._orig_theme and hasattr(self.win, "apply_theme"):
+            self.win.apply_theme(self._orig_theme)       # undo the live preview
+        super().reject()
 
     def _save(self):
         s = self.mgr.settings
+        s["theme"] = self.theme.currentData()
+        s["clipboard"] = self.clip.isChecked()
+        s["clipboard_video"] = self.clip_video.isChecked()
         s["save_dir"] = self.folder.text().strip() or s["save_dir"]
         s["max_parallel"] = self.parallel.value()
         s["segments"] = self.segments.value()
         s["categorize"] = self.categorize.isChecked()
+        s["category_dirs"] = {k: e.text().strip() for k, e in self.cat_edits.items() if e.text().strip()}
+        s["schedule_on"] = self.sch_on.isChecked()
+        s["schedule_start"] = self.sch_start.time().toString("HH:mm")
+        s["schedule_stop_on"] = self.sch_stop_on.isChecked()
+        s["schedule_stop"] = self.sch_stop.time().toString("HH:mm")
+        s["schedule_days"] = [i for i, b in enumerate(self.day_btns) if b.isChecked()]
+        s["schedule_action"] = self.sch_action.currentData()
+        s["auto_update"] = self.auto_up.isChecked()
         s["startup"] = self.startup.isChecked()
         s["seed_after"] = self.seed.isChecked()
         s["torrent_ask_files"] = self.ask_files.isChecked()
@@ -824,6 +1115,9 @@ class SettingsDialog(QDialog):
                 set_torrent_assoc(s["torrent_assoc"])
             except Exception as e:
                 QMessageBox.warning(self, APP_NAME, f"Couldn't register magnet / .torrent handling:\n{e}")
+        self.mgr.apply_folders()
+        if s["schedule_on"] and hasattr(self.win, "scheduler"):
+            self.win.scheduler._was_inside = False       # re-evaluate the window with the new times
         self.mgr.save()
         self.accept()
 
@@ -871,8 +1165,19 @@ class MainWindow(QMainWindow):
         self._filter = "all"
         self._notified = {i.id for i in mgr.items if i.status == "done"}
 
+        self._ignore_clip = False
+        self._last_clip = ""
+        self._update_info = None
+        self._update_result = None
+        self._update_progress = None
+        self._update_stop = threading.Event()
+        self._theme_poll = 0
+        self.update_status = ""
+        self.scheduler = features.Scheduler(mgr)
+        self.when_done = features.WhenDone(mgr)
+
         self.setWindowTitle(APP_NAME)
-        app_icon = QIcon(resource("app.png"))
+        app_icon = QIcon(app_icon_path())
         self.setWindowIcon(app_icon)
         self.resize(1180, 640)
         self.setMinimumSize(900, 480)
@@ -887,6 +1192,7 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self._build_toolbar())
+        v.addWidget(self._build_banner())
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_table())
         self.stack.addWidget(self._build_empty())
@@ -907,24 +1213,9 @@ class MainWindow(QMainWindow):
         # tray
         self.tray = QSystemTrayIcon(app_icon, self)
         self.tray.setToolTip(APP_NAME)
-        menu = QMenu()
-        menu.addAction(icon("all", "#d8dce2", 16), "Open DMTOR", self.bring_front)
-        menu.addAction(icon("add", "#d8dce2", 16), "Add URL…", self.add_dialog)
-        menu.addAction(icon("magnet", "#2dd4bf", 16), "Open torrent file…", self.open_torrent_files)
-        menu.addAction(icon("link", "#d8dce2", 16), "Connect browser…", open_browser_guide)
-        menu.addSeparator()
-        self.tray_capture = menu.addAction("Catch browser downloads")
-        self.tray_capture.setCheckable(True)
-        self.tray_capture.triggered.connect(lambda *_: self.toggle_capture())
-        self.tray_limit = menu.addAction("Limit speed")
-        self.tray_limit.setCheckable(True)
-        self.tray_limit.triggered.connect(lambda *_: self.toggle_limit())
-        menu.addSeparator()
-        menu.addAction(icon("resume_all", "#d8dce2", 16), "Resume all", self.mgr.resume_all)
-        menu.addAction(icon("pause_all", "#d8dce2", 16), "Pause all", self.mgr.pause_all)
-        menu.addSeparator()
-        menu.addAction("Quit", self.quit_app)
-        self.tray.setContextMenu(menu)
+        self.tray_menu = QMenu()
+        self._build_tray_menu()
+        self.tray.setContextMenu(self.tray_menu)
         self.tray.activated.connect(
             lambda r: self.bring_front() if r in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
         self.tray.show()
@@ -933,10 +1224,266 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.tick)
         self.timer.start(500)
         self.app_icon = app_icon
+        QApplication.clipboard().dataChanged.connect(self._on_clipboard)
+        QTimer.singleShot(8000, lambda: self.check_updates(manual=False))
         self._apply_capture_ui()
         self._apply_limit_ui()
+        self._apply_when_ui()
         self.refresh()
         self._update_buttons()
+
+    def _build_tray_menu(self):
+        menu = self.tray_menu
+        menu.clear()
+        menu.addAction(icon("all", T("icon"), 16), "Open DMTOR", self.bring_front)
+        menu.addAction(icon("add", T("icon"), 16), "Add URL…", self.add_dialog)
+        menu.addAction(icon("magnet", T("teal"), 16), "Open torrent file…", self.open_torrent_files)
+        menu.addAction(icon("link", T("icon"), 16), "Connect browser…", open_browser_guide)
+        menu.addSeparator()
+        self.tray_capture = menu.addAction("Catch browser downloads")
+        self.tray_capture.setCheckable(True)
+        self.tray_capture.triggered.connect(lambda *_: self.toggle_capture())
+        self.tray_limit = menu.addAction("Limit speed")
+        self.tray_limit.setCheckable(True)
+        self.tray_limit.triggered.connect(lambda *_: self.toggle_limit())
+        when = menu.addMenu(icon("power", T("icon"), 16), "When downloads finish")
+        when.aboutToShow.connect(lambda: self._fill_when_menu(when))
+        menu.addSeparator()
+        menu.addAction(icon("resume_all", T("icon"), 16), "Resume all", self.mgr.resume_all)
+        menu.addAction(icon("pause_all", T("icon"), 16), "Pause all", self.mgr.pause_all)
+        menu.addSeparator()
+        menu.addAction("Quit", self.quit_app)
+
+    # ---- themes ----
+    def apply_theme(self, key=None):
+        key = key or self.mgr.settings.get("theme", "midnight")
+        theme.apply(QApplication.instance(), asset_url, key)
+        app_ic = QIcon(app_icon_path())
+        self.setWindowIcon(app_ic)
+        QApplication.instance().setWindowIcon(app_ic)
+        self._logo.setPixmap(QPixmap(app_icon_path()).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        for key_, (ic, prim) in self._btn_icons.items():
+            b = self.buttons[key_]
+            b.setIcon(icon(ic, T("on_acc") if prim else T("icon"), 18, 2.1 if prim else 1.9))
+        self.buttons["open_torrent"].setIcon(icon("magnet", T("teal"), 18))
+        for li in self._filter_items.values():
+            k = li.data(Qt.UserRole)
+            color = CATEGORY_ICON[k][1] if k in CATEGORY_ICON else T("side_text")
+            li.setIcon(icon(li.data(Qt.UserRole + 2), color, 18))
+        self._empty_art.setPixmap(pixmap("active", T("faint"), 72))
+        b1, b2 = self._empty_btns
+        b1.setIcon(icon("add", T("on_acc"), 18, 2.1))
+        if b2:
+            b2.setIcon(icon("magnet", T("teal"), 18))
+        self._banner_icon.setPixmap(pixmap("update", T("info_fg"), 20))
+        self._build_tray_menu()
+        self._apply_capture_ui()
+        self._apply_limit_ui()
+        self._apply_when_ui()
+        self.table.viewport().update()
+        self.refresh()
+
+    # ---- when downloads finish ----
+    def _fill_when_menu(self, m):
+        m.clear()
+        cur = self.mgr.settings.get("after_done", "none")
+        hdr = m.addAction("WHEN ALL DOWNLOADS FINISH")
+        hdr.setEnabled(False)
+        for key, text in ACTIONS:
+            a = m.addAction(text)
+            a.setCheckable(True)
+            a.setChecked(key == cur)
+            a.triggered.connect(lambda _=False, k=key: self.set_after_done(k))
+        m.addSeparator()
+        m.addAction(icon("clock", T("icon"), 16), "Schedule…", lambda: self.settings_dialog("Schedule"))
+
+    def set_after_done(self, key):
+        self.mgr.settings["after_done"] = key
+        self.when_done.armed = any(i.status in features.ACTIVE for i in self.mgr.items)
+        self._apply_when_ui()
+        if key != "none":
+            text = dict(ACTIONS)[key]
+            busy = self.when_done.armed
+            self.tray.showMessage(APP_NAME, f"{text} when all downloads finish." if busy else
+                                  f"{text} once the next downloads finish.", QSystemTrayIcon.Information, 3000)
+
+    def _apply_when_ui(self):
+        key = self.mgr.settings.get("after_done", "none")
+        b = self.buttons["when_done"]
+        short = {"none": "When done", "sleep": "Then: Sleep", "shutdown": "Then: Shut down", "quit": "Then: Close"}
+        b.setText(short.get(key, "When done"))
+        b.setIcon(icon("power", T("info_fg") if key != "none" else T("icon"), 18))
+        b.setProperty("on", key != "none")
+        b.style().unpolish(b)
+        b.style().polish(b)
+
+    def run_finish_action(self, action, why):
+        if action in (None, "none"):
+            return
+        if self._dialog_open:     # try again on a later tick
+            QTimer.singleShot(5000, lambda: self.run_finish_action(action, why))
+            return
+        self._dialog_open = True
+        try:
+            go = CountdownDialog(self, action, why).exec() == QDialog.Accepted
+        finally:
+            self._dialog_open = False
+        if not go:
+            return
+        self.mgr.save()
+        if action == "quit":
+            self.quit_app()
+        elif action == "shutdown":
+            self.mgr.shutdown()
+            features.power_action("shutdown")
+            self.quit_app()
+        elif action == "sleep":
+            features.power_action("sleep")
+
+    # ---- clipboard ----
+    def _on_clipboard(self):
+        s = self.mgr.settings
+        if self._ignore_clip:
+            self._ignore_clip = False
+            return
+        if not s.get("clipboard", True) or self._dialog_open:
+            return
+        url = features.clip_candidate(QApplication.clipboard().text(), VIDEO_SITES, s.get("clipboard_video", False))
+        if not url or url == self._last_clip:
+            return
+        self._last_clip = url
+        if any(i.url == url and i.status != "done" for i in self.mgr.items):
+            return
+        kind = "torrent" if is_torrent_source(url) else ("video" if VIDEO_SITES.search(url) else "file")
+        self.inbox.put({"url": url, "type": kind, "from": "clipboard"})
+
+    # ---- updates ----
+    def _build_banner(self):
+        f = QFrame()
+        f.setObjectName("Banner")
+        h = QHBoxLayout(f)
+        h.setContentsMargins(16, 8, 12, 8)
+        h.setSpacing(10)
+        self._banner_icon = QLabel()
+        self._banner_icon.setPixmap(pixmap("update", T("info_fg"), 20))
+        h.addWidget(self._banner_icon)
+        self._banner_text = QLabel("")
+        h.addWidget(self._banner_text, 1)
+        self._banner_bar = QProgressBar()
+        self._banner_bar.setFixedWidth(180)
+        self._banner_bar.setRange(0, 1000)
+        self._banner_bar.hide()
+        h.addWidget(self._banner_bar)
+        self._banner_go = primary(QPushButton("Update now"))
+        self._banner_go.clicked.connect(self.start_update)
+        self._banner_skip = QPushButton("Skip this version")
+        self._banner_skip.clicked.connect(self._skip_update)
+        self._banner_later = QPushButton("Later")
+        self._banner_later.clicked.connect(lambda: f.hide())
+        for b in (self._banner_go, self._banner_skip, self._banner_later):
+            h.addWidget(b)
+        f.hide()
+        self.banner = f
+        return f
+
+    def check_updates(self, manual=False):
+        """Background check. manual=True ignores 'skip' and the 12-hour timer."""
+        if not manual and not features.update_due(self.mgr.settings):
+            return
+        self.mgr.settings["last_update_check"] = time.time()
+
+        def work():
+            try:
+                self._update_result = ("ok", features.check_latest(), manual)
+            except Exception as e:
+                self._update_result = ("error", str(e), manual)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _handle_update_result(self):
+        res, self._update_result = self._update_result, None
+        kind, data, manual = res
+        if kind == "error":
+            if manual:
+                self.tray.showMessage(APP_NAME, f"Couldn't check for updates: {data}", QSystemTrayIcon.Warning, 4000)
+            self.update_status = f"Couldn't check: {data}"
+            return
+        if features.is_newer(data["version"]) and (manual or data["version"] != self.mgr.settings.get("skip_version")):
+            self._update_info = data
+            self.update_status = f"Version {data['version']} is available."
+            self._banner_text.setText(f"<b>DMTOR {data['version']}</b> is available — you have {features.VERSION}.")
+            self._banner_bar.hide()
+            for b in (self._banner_go, self._banner_skip, self._banner_later):
+                b.show()
+                b.setEnabled(True)
+            self.banner.show()
+            self.tray.showMessage(APP_NAME, f"DMTOR {data['version']} is available. Open DMTOR to update.",
+                                  QSystemTrayIcon.Information, 5000)
+        else:
+            self.update_status = f"You have the latest version ({features.VERSION})."
+            if manual:
+                self.tray.showMessage(APP_NAME, self.update_status, QSystemTrayIcon.Information, 3000)
+
+    def _skip_update(self):
+        if self._update_info:
+            self.mgr.settings["skip_version"] = self._update_info["version"]
+            self.mgr.save()
+        self.banner.hide()
+
+    def start_update(self):
+        info = self._update_info
+        if not info:
+            return
+        self._banner_text.setText(f"Downloading DMTOR {info['version']}…")
+        self._banner_bar.setValue(0)
+        self._banner_bar.show()
+        self._banner_go.setEnabled(False)
+        self._banner_skip.hide()
+        self._banner_later.setText("Cancel")
+        self._banner_later.clicked.disconnect()
+        self._banner_later.clicked.connect(self._cancel_update)
+        self._update_stop.clear()
+        dest = os.path.join(tempfile.gettempdir(), f"DMTOR-Setup-{info['version']}.exe")
+
+        def prog(done, total):
+            self._update_progress = (done, total, None)
+
+        def work():
+            try:
+                features.download_update(info["url"], dest, prog, self._update_stop)
+                self._update_progress = (1, 1, dest)
+            except Exception as e:
+                self._update_progress = (0, 0, "error:" + str(e))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _cancel_update(self):
+        self._update_stop.set()
+        self.banner.hide()
+        self._banner_later.setText("Later")
+        self._banner_later.clicked.disconnect()
+        self._banner_later.clicked.connect(lambda: self.banner.hide())
+
+    def _handle_update_progress(self):
+        done, total, result = self._update_progress
+        if total:
+            self._banner_bar.setValue(int(1000 * done / total))
+        if result is None:
+            return
+        self._update_progress = None
+        if result.startswith("error:"):
+            if not self._update_stop.is_set():
+                self._banner_text.setText("The update couldn't be downloaded: " + result[6:])
+                self._banner_bar.hide()
+                self._banner_go.setEnabled(True)
+            return
+        self._banner_text.setText("Installing the update — DMTOR will reopen by itself…")
+        QApplication.processEvents()
+        self.mgr.shutdown()
+        try:
+            features.run_installer(result)
+        except Exception as e:
+            QMessageBox.warning(self, APP_NAME, f"Couldn't start the installer:\n{e}")
+            return
+        self.quit_app()
 
     # ---- speed limits ----
     def toggle_limit(self):
@@ -957,7 +1504,7 @@ class MainWindow(QMainWindow):
         b = self.buttons["speed"]
         down, t_down, t_up = self.mgr.effective_limits()
         b.setText(f"Max {fmt_rate(down)}" if on and down else ("Limited" if on else "Unlimited"))
-        b.setIcon(icon("gauge", "#7fb2ff" if on else "#d8dce2", 18))
+        b.setIcon(icon("gauge", T("info_fg") if on else T("icon"), 18))
         if on:
             tip = (f"Speed limit ON\nDownloads: {fmt_rate(down)}\nTorrents: ↓ {fmt_rate(t_down)}"
                    f"   ↑ {fmt_rate(t_up)}\nClick to turn off (Ctrl+L) · arrow for options")
@@ -1023,7 +1570,7 @@ class MainWindow(QMainWindow):
         self._preset_menu(m, f"Torrent upload  ({fmt_rate(s.get('torrent_up', 0))})",
                           s.get("torrent_up", 0), setter("torrent_up"), "Torrent upload limit")
         m.addSeparator()
-        m.addAction(icon("gauge", "#d8dce2", 16), "Speed limits…", self.speed_dialog)
+        m.addAction(icon("gauge", T("icon"), 16), "Speed limits…", self.speed_dialog)
 
     def speed_dialog(self):
         self._dialog_open = True
@@ -1057,7 +1604,7 @@ class MainWindow(QMainWindow):
         on = self.mgr.settings.get("capture", True)
         b = self.buttons["capture"]
         b.setText("Catching on" if on else "Catching off")
-        b.setIcon(icon("catch" if on else "catch_off", "#19a974" if on else "#f2a93b", 18))
+        b.setIcon(icon("catch" if on else "catch_off", T("ok") if on else T("warn_text"), 18))
         b.setToolTip(("Catching downloads from the browser — click to turn off" if on else
                       "Not catching — the browser downloads files itself. Click to turn on")
                      + "  (Ctrl+Shift+C)")
@@ -1065,7 +1612,7 @@ class MainWindow(QMainWindow):
         b.style().unpolish(b)
         b.style().polish(b)
         self.tray_capture.setChecked(on)
-        self.tray.setIcon(self.app_icon if on else QIcon(resource("app_off.png")))
+        self.tray.setIcon(QIcon(app_icon_path()) if on else QIcon(resource("app_off.png")))
 
     # ---- building ----
     def _build_sidebar(self):
@@ -1081,7 +1628,8 @@ class MainWindow(QMainWindow):
         bh.setContentsMargins(18, 20, 18, 16)
         bh.setSpacing(10)
         logo = QLabel()
-        logo.setPixmap(QPixmap(resource("app.png")).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self._logo = logo
+        logo.setPixmap(QPixmap(app_icon_path()).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         bh.addWidget(logo)
         names = QVBoxLayout()
         names.setSpacing(0)
@@ -1103,8 +1651,9 @@ class MainWindow(QMainWindow):
                 self.filters.addItem(sep)
                 continue
             key, text, ic = f
-            color = CATEGORY_ICON[key][1] if key in CATEGORY_ICON else "#b8bec8"
+            color = CATEGORY_ICON[key][1] if key in CATEGORY_ICON else T("side_text")
             it = QListWidgetItem(icon(ic, color, 18), text)
+            it.setData(Qt.UserRole + 2, ic)
             it.setData(Qt.UserRole, key)
             it.setData(Qt.UserRole + 1, text)
             self.filters.addItem(it)
@@ -1123,11 +1672,13 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
         tb.setIconSize(QSize(18, 18))
         self.buttons = {}
+        self._btn_icons = {}
 
         def btn(key, text, ic, slot, tip, prim=False):
             b = QToolButton()
             b.setText(text)
-            b.setIcon(icon(ic, "#ffffff" if prim else "#d8dce2", 18, 2.1 if prim else 1.9))
+            b.setIcon(icon(ic, T("on_acc") if prim else T("icon"), 18, 2.1 if prim else 1.9))
+            self._btn_icons[key] = (ic, prim)
             b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             b.setToolTip(tip)
             b.setCursor(Qt.PointingHandCursor)
@@ -1151,7 +1702,7 @@ class MainWindow(QMainWindow):
         btn("add", "Add URL", "add", self.add_dialog, "Add a new download (Ctrl+N)", prim=True)
         ot = btn("open_torrent", "Open torrent", "magnet", self.open_torrent_files,
                  "Open .torrent files from your computer (Ctrl+O)")
-        ot.setIcon(icon("magnet", "#2dd4bf", 18))
+        ot.setIcon(icon("magnet", T("teal"), 18))
         btn("resume", "Resume", "play", self.resume_selected, "Resume selected (Space)")
         btn("pause", "Pause", "pause", self.pause_selected, "Pause selected (Space)")
         btn("delete", "Delete", "trash", self.remove_selected, "Remove selected (Del)")
@@ -1164,6 +1715,13 @@ class MainWindow(QMainWindow):
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
+        wd = btn("when_done", "When done", "power", lambda: wd.showMenu(),
+                 "Sleep, shut down or close DMTOR when all downloads finish")
+        wd.setObjectName("WhenDone")
+        wd.setPopupMode(QToolButton.InstantPopup)
+        self.when_menu = QMenu(wd)
+        self.when_menu.aboutToShow.connect(lambda: self._fill_when_menu(self.when_menu))
+        wd.setMenu(self.when_menu)
         sp = btn("speed", "Speed", "gauge", self.toggle_limit, "")
         sp.setObjectName("Speed")
         sp.setPopupMode(QToolButton.MenuButtonPopup)
@@ -1211,7 +1769,8 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(w)
         v.addStretch()
         art = QLabel()
-        art.setPixmap(pixmap("active", "#3a414c", 72))
+        art.setPixmap(pixmap("active", T("faint"), 72))
+        self._empty_art = art
         art.setAlignment(Qt.AlignCenter)
         v.addWidget(art)
         v.addSpacing(10)
@@ -1226,11 +1785,13 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.addStretch()
         b = primary(QPushButton("  Add URL"))
-        b.setIcon(icon("add", "#ffffff", 18, 2.1))
+        b.setIcon(icon("add", T("on_acc"), 18, 2.1))
+        self._empty_btns = (b, None)
         b.clicked.connect(lambda: self.add_dialog())
         row.addWidget(b)
         b2 = QPushButton("  Open torrent file")
-        b2.setIcon(icon("magnet", "#2dd4bf", 18))
+        b2.setIcon(icon("magnet", T("teal"), 18))
+        self._empty_btns = (b, b2)
         b2.setCursor(Qt.PointingHandCursor)
         b2.clicked.connect(lambda: self.open_torrent_files())
         row.addWidget(b2)
@@ -1251,6 +1812,33 @@ class MainWindow(QMainWindow):
                 if self._dialog_open:
                     break
         self.mgr.tick()
+        for ev, n in self.scheduler.tick():
+            if ev == "started":
+                self.tray.showMessage("Schedule", f"Started {n} scheduled download{'s' if n != 1 else ''}."
+                                      if n else "Schedule started — nothing waiting in the queue.",
+                                      QSystemTrayIcon.Information, 4000)
+            elif ev == "stopped" and n:
+                self.tray.showMessage("Schedule", f"Paused {n} scheduled download{'s' if n != 1 else ''} "
+                                      "(stop time reached).", QSystemTrayIcon.Information, 4000)
+            elif ev == "finished":
+                act = self.mgr.settings.get("schedule_action", "none")
+                self.tray.showMessage("Schedule", "All scheduled downloads finished.", QSystemTrayIcon.Information, 4000)
+                QTimer.singleShot(0, lambda a=act: self.run_finish_action(a, "Scheduled downloads finished."))
+        act = self.when_done.tick()
+        if act:
+            self._apply_when_ui()
+            QTimer.singleShot(0, lambda a=act: self.run_finish_action(a, "All downloads finished."))
+        if self._update_result:
+            self._handle_update_result()
+        if self._update_progress:
+            self._handle_update_progress()
+        self._theme_poll += 1
+        if self._theme_poll >= 20:          # every ~10 s
+            self._theme_poll = 0
+            if self.mgr.settings.get("theme") == "system" and theme.resolve("system") != theme.KEY:
+                self.apply_theme()
+            if self.mgr.settings.get("auto_update", True) and features.update_due(self.mgr.settings):
+                self.check_updates(manual=False)
         if not self._dialog_open:
             for it in list(self.mgr.items):
                 if it.kind == "torrent" and it.awaiting_files and it.status == "downloading":
@@ -1337,7 +1925,7 @@ class MainWindow(QMainWindow):
             sp_item.setText(spd)
             lim_up = getattr(it, "limit_up", 0)
             if it.limit or lim_up:
-                sp_item.setIcon(icon("gauge", "#7fb2ff", 14))
+                sp_item.setIcon(icon("gauge", T("info_fg"), 14))
                 tip = []
                 if it.limit:
                     tip.append(f"Limited to {fmt_rate(it.limit)}")
@@ -1362,6 +1950,8 @@ class MainWindow(QMainWindow):
                         it.phase, f"· {it.peers} peers")
                 elif it.status == "done" and it.seeding:
                     extra = "· seeding"
+            if getattr(it, "scheduled", False) and it.status in ("paused", "queued", "error") and not extra:
+                extra = "· scheduled"
             st.setData(Qt.UserRole + 1, extra)
             st.setToolTip(it.error or ("This server doesn't support resume, so it will start over."
                                        if restart else ""))
@@ -1432,7 +2022,7 @@ class MainWindow(QMainWindow):
         if not sel:
             return
         m = QMenu(self)
-        c = "#d8dce2"
+        c = T("icon")
         m.addAction(icon("play", c, 16), "Resume", self.resume_selected)
         m.addAction(icon("pause", c, 16), "Pause", self.pause_selected)
         m.addSeparator()
@@ -1441,8 +2031,12 @@ class MainWindow(QMainWindow):
         m.addAction(icon("link", c, 16), "Copy link", self.copy_link)
         t = sel[0]
         if len(sel) == 1 and t.kind == "torrent" and t.has_metadata():
-            m.addAction(icon("magnet", "#2dd4bf", 16), "Choose files…",
+            m.addAction(icon("magnet", T("teal"), 16), "Choose files…",
                         lambda: self.choose_files(t, new=t.awaiting_files))
+        if self.mgr.settings.get("schedule_on") or any(getattr(i, "scheduled", False) for i in sel):
+            in_sched = all(getattr(i, "scheduled", False) for i in sel)
+            m.addAction(icon("clock", c, 16), "Remove from schedule" if in_sched else "Add to schedule",
+                        lambda items=sel, v=not in_sched: self._set_scheduled(items, v))
         m.addSeparator()
         cur = sel[0].limit if all(i.limit == sel[0].limit for i in sel) else -1
         lim = self._preset_menu(m, "Limit speed", cur,
@@ -1457,10 +2051,18 @@ class MainWindow(QMainWindow):
                                    "Upload limit for this torrent")
             up.setIcon(icon("upload", c, 16))
         m.addSeparator()
-        m.addAction(icon("trash", "#ef8f89", 16), "Delete…", self.remove_selected)
+        m.addAction(icon("trash", T("danger_icon"), 16), "Delete…", self.remove_selected)
         m.exec(self.table.viewport().mapToGlobal(pos))
 
     # ---- actions ----
+    def _set_scheduled(self, items, on):
+        for it in items:
+            it.scheduled = on
+            if on and it.status in ("queued",) and not it.is_alive():
+                it.status = "paused"      # wait for the start time
+        self.mgr.save()
+        self.refresh()
+
     def open_torrent_files(self):
         start = self.mgr.settings.get("last_torrent_dir") or os.path.join(os.path.expanduser("~"), "Downloads")
         self.bring_front()
@@ -1502,7 +2104,9 @@ class MainWindow(QMainWindow):
             dlg.raise_()
             dlg.activateWindow()
             if dlg.exec() == QDialog.Accepted:
-                self.mgr.add(dlg.make_item(), start=dlg.choice == "now")
+                item = dlg.make_item()
+                item.scheduled = dlg.sched.isChecked()
+                self.mgr.add(item, start=dlg.choice == "now")
                 self.refresh()
         finally:
             self._dialog_open = False
@@ -1556,7 +2160,7 @@ class MainWindow(QMainWindow):
             return
         box = QMessageBox(self)
         box.setWindowTitle("Delete")
-        box.setIconPixmap(pixmap("trash", "#ef8f89", 40))
+        box.setIconPixmap(pixmap("trash", T("danger_icon"), 40))
         n = len(items)
         box.setText(f"<b>Remove {n} download{'s' if n > 1 else ''}?</b>")
         box.setInformativeText("You can keep the file on disk or delete it too.")
@@ -1597,13 +2201,17 @@ class MainWindow(QMainWindow):
     def copy_link(self):
         items = self._selected()
         if items:
+            self._ignore_clip = True
             QApplication.clipboard().setText(items[0].url)
 
-    def settings_dialog(self):
+    def settings_dialog(self, tab=None):
+        if tab is not None and not isinstance(tab, str):
+            tab = None
         self._dialog_open = True
         try:
-            SettingsDialog(self, self.mgr).exec()
+            SettingsDialog(self, self.mgr, tab).exec()
             self._apply_limit_ui()
+            self._apply_when_ui()
         finally:
             self._dialog_open = False
 
@@ -1668,6 +2276,87 @@ def open_browser_guide():
         open_path(guide)
 
 
+def shots(out):
+    """Build-time visual check: render the real windows with demo data in every theme and save PNGs."""
+    os.makedirs(out, exist_ok=True)
+    os.environ["APPDATA"] = tempfile.mkdtemp()
+    app = QApplication(sys.argv)
+    app.setFont(QFont("Segoe UI", 10))
+    theme.apply(app, asset_url, "midnight")
+    mgr = Manager()
+    mgr.settings.update(schedule_on=True, limit_on=True, limit_down=2048, after_done="shutdown")
+    mgr.apply_limits()
+    import torrent as tmod
+    from core import FileDownload
+    from video import VideoDownload
+
+    def f(name, total, frac, status, speed=0.0, limit=0, scheduled=False):
+        it = FileDownload("https://example.com/" + name, mgr.settings["save_dir"], name)
+        it.name, it.total, it.status, it.speed = name, total, status, speed
+        it.parts = [[0, total - 1, int(total * frac)]]
+        it.resumable = True
+        it.set_limit(limit)
+        it.scheduled = scheduled
+        mgr.items.append(it)
+    t = tmod.TorrentDownload("magnet:?xt=urn:btih:abc&dn=Ubuntu", mgr.settings["save_dir"], ask_files=False)
+    t.name, t.total, t._done, t.status, t.speed, t.upload, t.peers = \
+        "ubuntu-24.04.1-desktop-amd64.iso", 6_114_656_256, 3_791_087_000, "downloading", 8.4e6, 4.1e5, 48
+    mgr.items.append(t)
+    v = VideoDownload("https://youtube.com/watch?v=x", mgr.settings["save_dir"], "1080")
+    v.name, v.total, v._done, v.status, v.speed = "Project walkthrough (1080p).mp4", 412_000_000, 128_000_000, \
+        "downloading", 3.1e6
+    mgr.items.append(v)
+    f("Setup_v2.exe", 96_000_000, 1.0, "done")
+    f("Report Q3 2026.pdf", 14_000_000, 0.44, "paused", scheduled=True)
+    f("Archive.zip", 2_400_000_000, 0.12, "paused", limit=512)
+    f("Broken link.iso", 700_000_000, 0.05, "error")
+
+    w = MainWindow(mgr, queue.Queue())
+    w.timer.stop()
+    w.resize(1240, 660)
+    w.show()
+    w._update_info = {"version": "1.7", "url": "", "page": "", "notes": "", "size": 0}
+    w._banner_text.setText(f"<b>DMTOR 1.7</b> is available — you have {features.VERSION}.")
+    w.banner.show()
+    w.table.selectRow(0)
+
+    def save(widget, name):
+        for _ in range(3):
+            app.processEvents()
+        widget.grab().save(os.path.join(out, name + ".png"))
+
+    for key in theme.THEMES:
+        w.apply_theme(key)
+        w.refresh()
+        save(w, f"main_{key}")
+    w.apply_theme("midnight")
+    w.refresh()
+    w.when_menu.popup(w.buttons["when_done"].mapToGlobal(w.buttons["when_done"].rect().bottomLeft()))
+    save(w.when_menu, "menu_when_done")
+    w.when_menu.hide()
+    for key in ("midnight", "daylight"):
+        w.apply_theme(key)
+        dlg = SettingsDialog(w, mgr)
+        dlg.theme.blockSignals(True)
+        dlg.show()
+        for i, name in enumerate(SettingsDialog.TABS):
+            dlg.tabs.setCurrentIndex(i)
+            save(dlg, f"settings_{key}_{i}_{name.lower()}")
+        dlg.hide()
+    w.apply_theme("midnight")
+    a = AddDialog(w, mgr, {"url": "https://example.com/tools/setup.exe", "size": 52_000_000})
+    a.show()
+    save(a, "dialog_add")
+    a.hide()
+    cd = CountdownDialog(w, "shutdown", "All downloads finished.")
+    cd.timer.stop()
+    cd.show()
+    save(cd, "dialog_countdown")
+    cd.hide()
+    w.tray.hide()
+    return 0
+
+
 def unregister():
     """Run by the uninstaller: remove start-with-Windows and magnet/.torrent registration."""
     for fn in (set_startup, set_torrent_assoc):
@@ -1681,6 +2370,18 @@ def main():
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
         sys.exit(selftest(sys.argv[i + 1] if i + 1 < len(sys.argv) else "selftest.txt"))
+    if "--shots" in sys.argv:
+        i = sys.argv.index("--shots")
+        out = sys.argv[i + 1] if i + 1 < len(sys.argv) else "shots"
+        try:
+            code = shots(out)
+        except Exception:
+            import traceback
+            os.makedirs(out, exist_ok=True)
+            with open(os.path.join(out, "error.txt"), "w", encoding="utf-8") as fh:
+                fh.write(traceback.format_exc())
+            code = 1
+        sys.exit(code)
     if "--unregister" in sys.argv:
         unregister()
         return
@@ -1718,6 +2419,7 @@ def main():
             QMessageBox.warning(None, APP_NAME, f"Port {PORT} is already used by another program.")
         return
     mgr = Manager()
+    theme.apply(app, asset_url, mgr.settings.get("theme", "midnight"))
     flag = os.path.join(mgr.dir, "startup.flag")      # left by the installer's "Start with Windows" box
     if os.path.isfile(flag):
         mgr.settings["startup"] = True

@@ -5,7 +5,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = 9614
-VERSION = "1.5"
+from features import VERSION
 
 
 class _Server(ThreadingHTTPServer):

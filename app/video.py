@@ -5,7 +5,7 @@ import shutil
 
 import yt_dlp
 
-from core import Item, safe_name, GLOBAL_LIMIT
+from core import Item, safe_name, GLOBAL_LIMIT, resolve_folder
 
 QUALITIES = [
     ("best", "Best available"),
@@ -82,7 +82,7 @@ class VideoDownload(Item):
 
     def _run(self):
         ff = ffmpeg_path()
-        folder = os.path.join(self.save_dir, "Music" if self.quality == "audio" else "Video")
+        folder = resolve_folder(self.save_dir, "Music" if self.quality == "audio" else "Video")
         os.makedirs(folder, exist_ok=True)
         opts = {
             "format": self._format(ff),

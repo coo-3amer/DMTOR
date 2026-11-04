@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlparse, unquote
 
 import requests
 
-from core import Item, safe_name, UA
+from core import Item, safe_name, UA, resolve_folder
 
 try:
     import libtorrent as lt
@@ -193,7 +193,7 @@ class TorrentDownload(Item):
         self.file_priorities = []          # saved choice (0 = skip, 4 = download)
         self.source = source            # magnet:, http(s) link to a .torrent, or local .torrent path
         self.save_dir = save_dir
-        self.save_path = os.path.join(save_dir, "Torrents")
+        self.save_path = resolve_folder(save_dir, "Torrents")
         self.torrent_data = torrent_data  # raw .torrent bytes, when we have them
         self.headers = headers or {}
         self.seed = seed

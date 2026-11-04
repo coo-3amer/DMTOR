@@ -47,16 +47,26 @@ jobs:
       - name: Self-test the exe
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist/DMTOR/DMTOR.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -Wait -PassThru
+          $p = Start-Process -FilePath dist/DMTOR/DMTOR.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Self-test timed out" }
           Get-Content selftest.txt
           if ($p.ExitCode -ne 0) { throw "Self-test failed" }
+
+      - name: Screenshots of the real windows (every theme)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/DMTOR/DMTOR.exe -ArgumentList '--shots', "$PWD\shots" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Screenshot run timed out" }
+          Get-ChildItem shots | Select-Object Name, Length
+          if (Test-Path shots/error.txt) { Get-Content shots/error.txt }
+          if ($p.ExitCode -ne 0) { throw "Screenshot run failed" }
 
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
-          $ver = (Select-String -Path app/server.py -Pattern 'VERSION = "([0-9.]+)"').Matches[0].Groups[1].Value
+          $ver = (Select-String -Path app/features.py -Pattern 'VERSION = "([0-9.]+)"').Matches[0].Groups[1].Value
           & $iscc "/DAppVersion=$ver.0" installer/DMTOR.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
           Get-ChildItem output
@@ -80,11 +90,12 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force pub | Out-Null
           Copy-Item output/DMTOR-Setup.exe pub/
+          if (Test-Path shots) { Copy-Item -Recurse shots pub/shots }
           Set-Location pub
           git init -q -b download
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add DMTOR-Setup.exe
+          git add -A
           git commit -q -m "DMTOR $env:VER installer"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" download
 

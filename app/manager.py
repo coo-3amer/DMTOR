@@ -3,6 +3,7 @@ import os
 import json
 import time
 
+import core
 from core import FileDownload, GLOBAL_LIMIT
 from video import VideoDownload
 import torrent
@@ -38,6 +39,25 @@ DEFAULT_SETTINGS = {
     "limit_down": 1024,
     "torrent_down": 1024,
     "torrent_up": 256,
+    # look
+    "theme": "midnight",
+    # folders per category, e.g. {"Video": "D:/Movies"} (missing/empty = default)
+    "category_dirs": {},
+    # clipboard
+    "clipboard": True,
+    "clipboard_video": False,
+    # scheduler
+    "schedule_on": False,
+    "schedule_start": "02:00",
+    "schedule_stop_on": True,
+    "schedule_stop": "08:00",
+    "schedule_days": [0, 1, 2, 3, 4, 5, 6],
+    "schedule_action": "none",
+    "after_done": "none",
+    # updates
+    "auto_update": True,
+    "last_update_check": 0,
+    "skip_version": "",
 }
 
 
@@ -49,7 +69,9 @@ class Manager:
         self._last_save = 0.0
         self._last_statuses = {}
         self.load()
+        self.settings["after_done"] = "none"     # one-time action never survives a restart
         self.apply_limits()
+        self.apply_folders()
 
     # ---- persistence ----
     def _path(self, name):
@@ -72,6 +94,7 @@ class Manager:
                 it = cls.from_dict(d)
                 if it.status in ("downloading", "pausing", "queued"):
                     it.status = "paused"
+                it.scheduled = bool(d.get("scheduled", False))
                 self.items.append(it)
             except Exception:
                 continue
@@ -85,7 +108,8 @@ class Manager:
     def save(self):
         try:
             self._write("settings.json", self.settings)
-            self._write("downloads.json", [i.to_dict() for i in self.items])
+            self._write("downloads.json", [dict(i.to_dict(), scheduled=getattr(i, "scheduled", False))
+                                           for i in self.items])
             self._last_save = time.time()
         except OSError:
             pass
@@ -123,6 +147,11 @@ class Manager:
         if item in self.items:
             self.items.remove(item)
         self.save()
+
+    def apply_folders(self):
+        core.DEFAULT_DIR["path"] = self.settings["save_dir"]
+        core.CATEGORY_DIRS.clear()
+        core.CATEGORY_DIRS.update({k: v for k, v in (self.settings.get("category_dirs") or {}).items() if v})
 
     # ---- speed limits ----
     def effective_limits(self):

@@ -72,6 +72,21 @@ CATEGORIES = {
 }
 
 
+# Per-category folders chosen in Settings → Folders, e.g. {"Video": "D:/Movies"}.
+CATEGORY_DIRS = {}
+DEFAULT_DIR = {"path": ""}   # the default download folder (category folders apply only to that one)
+
+
+def resolve_folder(save_dir, category, sub=True):
+    """Where a download of this category goes."""
+    custom = CATEGORY_DIRS.get(category)
+    same_default = os.path.normcase(os.path.abspath(save_dir or "")) == \
+        os.path.normcase(os.path.abspath(DEFAULT_DIR["path"] or "")) if DEFAULT_DIR["path"] else True
+    if custom and same_default:
+        return custom
+    return os.path.join(save_dir, category) if sub else save_dir
+
+
 def category_of(name):
     ext = os.path.splitext(name)[1].lower().lstrip(".")
     for cat, exts in CATEGORIES.items():
@@ -159,6 +174,7 @@ class Item:
         self._last_t = 0.0
         self._stop = threading.Event()
         self._thread = None
+        self.scheduled = False          # part of the scheduler's queue
         self.limit = 0                  # this download's own limit, KB/s (0 = none)
         self.limiter = RateLimiter()
 
@@ -309,7 +325,7 @@ class FileDownload(Item):
     def _run(self):
         if not self.path:
             self._probe()
-            folder = os.path.join(self.save_dir, category_of(self.name)) if self.categorize else self.save_dir
+            folder = resolve_folder(self.save_dir, category_of(self.name), self.categorize)
             os.makedirs(folder, exist_ok=True)
             with _PATH_LOCK:   # two downloads with the same name must not grab the same path
                 self.path = unique_path(os.path.join(folder, self.name))

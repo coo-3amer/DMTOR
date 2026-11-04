@@ -1,6 +1,6 @@
 ; DMTOR installer (Inno Setup 6). Built automatically by GitHub Actions.
 #ifndef AppVersion
-  #define AppVersion "1.5.0"
+  #define AppVersion "1.6.0"
 #endif
 
 [Setup]
@@ -54,6 +54,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\DMTOR.exe"; Parameters: "--guide"; Description: "Connect Chrome / Edge now (opens a short guide)"; \
   Flags: postinstall nowait skipifsilent
 Filename: "{app}\DMTOR.exe"; Description: "Open DMTOR"; Flags: postinstall nowait skipifsilent
+; after an automatic (silent) update, reopen DMTOR
+Filename: "{app}\DMTOR.exe"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /F /IM DMTOR.exe"; Flags: runhidden; RunOnceId: "KillApp"
