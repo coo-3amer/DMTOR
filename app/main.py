@@ -1084,7 +1084,7 @@ class SettingsDialog(QDialog):
         self.startup.setChecked(s.get("startup", False))
         self.startup.setEnabled(sys.platform == "win32")
         self.clip = QCheckBox("Watch the clipboard — offer to download copied links")
-        self.clip.setChecked(s.get("clipboard", True))
+        self.clip.setChecked(s.get("clipboard", False))
         self.clip_video = QCheckBox("Also for video pages (YouTube, Facebook, TikTok…)")
         self.clip_video.setChecked(s.get("clipboard_video", False))
         self.clip_video.setEnabled(self.clip.isChecked())
@@ -1539,7 +1539,7 @@ class MainWindow(QMainWindow):
         if self._ignore_clip:
             self._ignore_clip = False
             return
-        if not s.get("clipboard", True) or self._dialog_open:
+        if not s.get("clipboard", False) or self._dialog_open:
             return
         url = features.clip_candidate(QApplication.clipboard().text(), VIDEO_SITES, s.get("clipboard_video", False))
         if not url or url == self._last_clip:

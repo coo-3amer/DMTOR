@@ -77,7 +77,7 @@ DEFAULT_SETTINGS = {
     # folders per category, e.g. {"Video": "D:/Movies"} (missing/empty = default)
     "category_dirs": {},
     # clipboard
-    "clipboard": True,
+    "clipboard": False,
     "clipboard_video": False,
     # scheduler
     "schedule_on": False,
@@ -104,6 +104,10 @@ class Manager:
         self.load()
         if any(core._same(self.settings["save_dir"], o) for o in OLD_DEFAULTS):
             self.settings["save_dir"] = downloads_dir()
+            self.save()
+        if not self.settings.get("_clipboard_reset_19"):   # 1.9: catching copied links is now opt-in
+            self.settings["clipboard"] = False
+            self.settings["_clipboard_reset_19"] = True
             self.save()
         self.settings["after_done"] = "none"     # one-time action never survives a restart
         self.apply_limits()

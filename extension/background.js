@@ -3,8 +3,21 @@ const APP = "http://127.0.0.1:9614";
 const bypass = new Set(); // URLs the browser should download itself (app refused them)
 
 async function settings() {
-  const s = await chrome.storage.local.get({ intercept: true, minSizeKB: 0 });
+  const s = await chrome.storage.local.get({ intercept: true, onlyClicks: true, minSizeKB: 0 });
   return s;
+}
+
+// A download counts as "yours" only if you clicked something in a page shortly before it started.
+// (Sites often make you wait a few seconds after clicking "Download", hence the window.)
+const CLICK_WINDOW_MS = 20000;
+
+async function clickedRecently() {
+  try {
+    const { lastClick = 0 } = await chrome.storage.session.get("lastClick");
+    return Date.now() - lastClick < CLICK_WINDOW_MS;
+  } catch (e) {
+    return true;   // can't tell → don't block anything
+  }
 }
 
 // { alive, capture } — capture is the "Catching on/off" switch in the app
@@ -56,6 +69,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   if (bypass.has(url)) { bypass.delete(url); return; }
   const s = await settings();
   if (!s.intercept) return;
+  if (s.onlyClicks && !(await clickedRecently())) return;   // the site started it by itself → leave it to the browser
   const size = item.totalBytes > 0 ? item.totalBytes : item.fileSize;
   const name = baseName(item.filename).toLowerCase();
   const isTorrent = item.mime === "application/x-bittorrent" || /\.torrent(\?|$)/i.test(url) || name.endsWith(".torrent");
@@ -116,6 +130,9 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       const st = await appStatus();               // magnet click = automatic catch, so honour the switch
       if (!st.alive || !st.capture) return reply({ ok: false, reason: st.alive ? "off" : "app" });
       reply({ ok: await sendToApp({ type: "torrent", url: msg.url, referrer: sender.tab ? sender.tab.url : "" }) });
+    } else if (msg.action === "click") {
+      try { await chrome.storage.session.set({ lastClick: Date.now() }); } catch (e) {}
+      reply({ ok: true });
     } else if (msg.action === "status") {
       reply(await appStatus());
     }

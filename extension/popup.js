@@ -1,7 +1,7 @@
-const defaults = { intercept: true, videoButton: true, magnets: true, minSizeKB: 0 };
+const defaults = { intercept: true, onlyClicks: true, videoButton: true, magnets: true, minSizeKB: 0 };
 
 chrome.storage.local.get(defaults, (s) => {
-  for (const id of ["intercept", "videoButton", "magnets"]) {
+  for (const id of ["intercept", "onlyClicks", "videoButton", "magnets"]) {
     const el = document.getElementById(id);
     el.checked = s[id];
     el.addEventListener("change", () => chrome.storage.local.set({ [id]: el.checked }));
