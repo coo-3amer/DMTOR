@@ -61,6 +61,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "DMTOR"; Flags: deletevalue
 
 [Run]
+; create Music, Videos, Programs, Documents, Torrents and Others in the Downloads folder
+Filename: "{app}\EDENLOAD.exe"; Parameters: "--init-folders"; Flags: runhidden waituntilterminated
 Filename: "{app}\EDENLOAD.exe"; Parameters: "--guide"; Description: "Connect Chrome / Edge now (opens a short guide)"; \
   Flags: postinstall nowait skipifsilent
 Filename: "{app}\EDENLOAD.exe"; Description: "Open EDENLOAD"; Flags: postinstall nowait skipifsilent

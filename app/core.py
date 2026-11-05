@@ -75,16 +75,34 @@ CATEGORIES = {
 # Per-category folders chosen in Settings → Folders, e.g. {"Video": "D:/Movies"}.
 CATEGORY_DIRS = {}
 DEFAULT_DIR = {"path": ""}   # the default download folder (category folders apply only to that one)
+SORT = {"on": True}          # Settings → "Sort downloads into folders"
+
+# category → folder name inside the default download folder
+CATEGORY_FOLDER = {"Music": "Music", "Video": "Videos", "Programs": "Programs", "Documents": "Documents",
+                   "Torrents": "Torrents", "Compressed": "Others", "Images": "Others", "Other": "Others"}
+DEFAULT_FOLDERS = ["Music", "Videos", "Programs", "Documents", "Torrents", "Others"]
 
 
-def resolve_folder(save_dir, category, sub=True):
-    """Where a download of this category goes."""
+def _same(a, b):
+    return os.path.normcase(os.path.abspath(a or "")) == os.path.normcase(os.path.abspath(b or ""))
+
+
+def is_default_dir(save_dir):
+    return not DEFAULT_DIR["path"] or _same(save_dir, DEFAULT_DIR["path"])
+
+
+def resolve_folder(save_dir, category, sub=None):
+    """Where a download goes.
+    Default download folder → its category folder (Videos, Music, …) or the custom folder from Settings.
+    Any other folder the user picked → straight into that folder, no sub-folders."""
+    if not is_default_dir(save_dir):
+        return save_dir
     custom = CATEGORY_DIRS.get(category)
-    same_default = os.path.normcase(os.path.abspath(save_dir or "")) == \
-        os.path.normcase(os.path.abspath(DEFAULT_DIR["path"] or "")) if DEFAULT_DIR["path"] else True
-    if custom and same_default:
+    if custom:
         return custom
-    return os.path.join(save_dir, category) if sub else save_dir
+    if SORT["on"]:
+        return os.path.join(save_dir, CATEGORY_FOLDER.get(category, "Others"))
+    return save_dir
 
 
 def category_of(name):
@@ -316,7 +334,7 @@ class FileDownload(Item):
     def _run(self):
         if not self.path:
             self._probe()
-            folder = resolve_folder(self.save_dir, category_of(self.name), self.categorize)
+            folder = resolve_folder(self.save_dir, category_of(self.name))
             os.makedirs(folder, exist_ok=True)
             with _PATH_LOCK:   # two downloads with the same name must not grab the same path
                 self.path = unique_path(os.path.join(folder, self.name))

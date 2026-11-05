@@ -24,6 +24,7 @@ from PySide6.QtCore import QTime
 
 import theme
 import features
+import core
 import probe
 from features import ACTIONS, DAYS
 from icons import icon, pixmap, CATEGORY_ICON
@@ -538,6 +539,15 @@ class AddDialog(QDialog):
                 details.append("The size appears once the torrent connects — you'll pick the files then")
             elif info.get("files"):
                 details.append(f"{info['files']} file{'s' if info['files'] != 1 else ''}")
+        if info["kind"] == "torrent":
+            cat = "Torrents"
+        elif info["kind"] == "video":
+            cat = "Music" if self.quality.currentData() == "audio" else "Video"
+        else:
+            cat = category_of(self.name.text().strip() or name)
+        dest = core.resolve_folder(folder, cat)
+        parts = os.path.normpath(dest).split(os.sep)
+        details.append("Saves to " + ("…" + os.sep + os.sep.join(parts[-2:]) if len(parts) > 2 else dest))
         if free_txt:
             details.append(free_txt)
         if size and free is not None and size > free:
@@ -1102,7 +1112,7 @@ class SettingsDialog(QDialog):
         self.segments = QSpinBox()
         self.segments.setRange(1, 32)
         self.segments.setValue(s["segments"])
-        self.categorize = QCheckBox("Sort files into sub-folders (Video, Music, Programs, Documents…)")
+        self.categorize = QCheckBox("Sort downloads into Music, Videos, Programs, Documents, Torrents and Others")
         self.categorize.setChecked(s["categorize"])
         speed_btn = QPushButton("  Speed limits…")
         speed_btn.setIcon(icon("gauge", T("icon"), 16))
@@ -1229,8 +1239,12 @@ class SettingsDialog(QDialog):
 
     def _folder_hint(self, *_):
         base = self.folder.text().strip() or self.mgr.settings["save_dir"]
-        sub = os.path.join(base, "Video") if self.categorize.isChecked() else base
-        self.folder_hint.setText(f"Default: {sub}  (and the same for each kind)")
+        sort = self.categorize.isChecked()
+        for key, e in self.cat_edits.items():
+            e.setPlaceholderText("Default: " + (os.path.join(base, core.CATEGORY_FOLDER.get(key, "Others"))
+                                                if sort else base))
+        self.folder_hint.setText("These apply to the default download folder. If you pick another folder "
+                                 "when adding a download, the file goes straight into that folder.")
 
     def _preview_theme(self, *_):
         if hasattr(self.win, "apply_theme"):
@@ -1291,6 +1305,7 @@ class SettingsDialog(QDialog):
             except Exception as e:
                 QMessageBox.warning(self, APP_NAME, f"Couldn't register magnet / .torrent handling:\n{e}")
         self.mgr.apply_folders()
+        self.mgr.ensure_folders()
         if s["schedule_on"] and hasattr(self.win, "scheduler"):
             self.win.scheduler._was_inside = False       # re-evaluate the window with the new times
         self.mgr.save()
@@ -2604,6 +2619,9 @@ def main():
     if "--unregister" in sys.argv:
         unregister()
         return
+    if "--init-folders" in sys.argv:          # run by the installer
+        Manager().ensure_folders()
+        return
     if "--guide" in sys.argv:
         open_browser_guide()
         return
@@ -2639,6 +2657,7 @@ def main():
         return
     mgr = Manager()
     theme.apply(app, asset_url, mgr.settings.get("theme", "midnight"))
+    mgr.ensure_folders()
     flag = os.path.join(mgr.dir, "startup.flag")      # left by the installer's "Start with Windows" box
     if os.path.isfile(flag):
         mgr.settings["startup"] = True

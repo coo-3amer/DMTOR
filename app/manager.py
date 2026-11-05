@@ -1,5 +1,6 @@
 """Download queue, scheduling and persistence."""
 import os
+import sys
 import json
 import time
 
@@ -8,6 +9,35 @@ from core import FileDownload, GLOBAL_LIMIT
 from video import VideoDownload
 import torrent
 from torrent import TorrentDownload
+
+
+def downloads_dir():
+    """The user's real Downloads folder (Windows lets people move it, e.g. to D:\\ or OneDrive)."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import uuid
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                            ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+            g = uuid.UUID("{374DE290-123F-4565-9164-39C4925E467B}")     # FOLDERID_Downloads
+            guid = GUID(g.fields[0], g.fields[1], g.fields[2], (ctypes.c_ubyte * 8)(*g.bytes[8:]))
+            out = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(out)) == 0:
+                path = out.value
+                ctypes.windll.ole32.CoTaskMemFree(out)
+                if path:
+                    return path
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser("~"), "Downloads")
+
+
+# default folders of earlier versions → moved to the Downloads folder itself
+OLD_DEFAULTS = [os.path.join(os.path.expanduser("~"), "Downloads", n)
+                for n in ("EDENLOAD Downloads", "DMTOR Downloads", "Eden Downloads")]
 
 
 def data_dir():
@@ -28,7 +58,7 @@ def data_dir():
 
 
 DEFAULT_SETTINGS = {
-    "save_dir": os.path.join(os.path.expanduser("~"), "Downloads", "EDENLOAD Downloads"),
+    "save_dir": downloads_dir(),
     "max_parallel": 3,
     "segments": 8,
     "categorize": True,
@@ -72,6 +102,9 @@ class Manager:
         self._last_save = 0.0
         self._last_statuses = {}
         self.load()
+        if any(core._same(self.settings["save_dir"], o) for o in OLD_DEFAULTS):
+            self.settings["save_dir"] = downloads_dir()
+            self.save()
         self.settings["after_done"] = "none"     # one-time action never survives a restart
         self.apply_limits()
         self.apply_folders()
@@ -153,8 +186,28 @@ class Manager:
 
     def apply_folders(self):
         core.DEFAULT_DIR["path"] = self.settings["save_dir"]
+        core.SORT["on"] = bool(self.settings.get("categorize", True))
         core.CATEGORY_DIRS.clear()
         core.CATEGORY_DIRS.update({k: v for k, v in (self.settings.get("category_dirs") or {}).items() if v})
+
+    def ensure_folders(self):
+        """Create Music, Videos, Programs, Documents, Torrents and Others in the download folder."""
+        if not self.settings.get("categorize", True):
+            return []
+        made = []
+        custom = {core.CATEGORY_FOLDER[k] for k, v in core.CATEGORY_DIRS.items() if v and k in core.CATEGORY_FOLDER}
+        for name in core.DEFAULT_FOLDERS:
+            used_elsewhere = name in custom and all(
+                core.CATEGORY_DIRS.get(k) for k, f in core.CATEGORY_FOLDER.items() if f == name)
+            if used_elsewhere:
+                continue
+            p = os.path.join(self.settings["save_dir"], name)
+            try:
+                os.makedirs(p, exist_ok=True)
+                made.append(p)
+            except OSError:
+                pass
+        return made
 
     # ---- speed limits ----
     def effective_limits(self):
