@@ -2570,7 +2570,7 @@ def shots(out):
     a.hide()
     a = AddDialog(w, mgr, {"url": "https://www.youtube.com/watch?v=abc", "type": "video"})
     a.show()
-    fake(a, {"kind": "video", "name": "Project walkthrough — EDEN Walk", "duration": 754, "site": "Youtube",
+    fake(a, {"kind": "video", "name": "Product walkthrough (1080p)", "duration": 754, "site": "Youtube",
              "sizes": {"best": 912_000_000, "1080": 412_000_000, "720": 198_000_000, "480": 96_000_000,
                        "360": 52_000_000, "audio": 18_000_000}})
     a.quality.setCurrentIndex(1)
