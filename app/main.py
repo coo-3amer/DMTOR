@@ -368,7 +368,7 @@ class DiskGauge(QWidget):
     def __init__(self):
         super().__init__()
         self.frac = 0.0
-        self.setFixedHeight(96)
+        self.setFixedHeight(84)
 
     def set_value(self, frac):
         self.frac = max(0.0, min(1.0, frac))
@@ -1062,6 +1062,9 @@ class SpeedDialog(QDialog):
         s["torrent_up"] = self.t_up.kb()
         self.mgr.apply_limits()
         self.mgr.save()
+        if hasattr(self.win, "apply_layout") and new_layout != self.win.layout_key():
+            self.win.apply_layout(new_layout)
+            self.mgr.save()
         self.accept()
 
 
@@ -1329,6 +1332,10 @@ class SettingsDialog(QDialog):
             self.theme.addItem(theme_swatch(key), text, key)
         self.theme.setCurrentIndex(max(0, self.theme.findData(self._orig_theme)))
         self.theme.currentIndexChanged.connect(self._preview_theme)
+        self.layout_box = QComboBox()
+        for key, text in LAYOUTS:
+            self.layout_box.addItem(text, key)
+        self.layout_box.setCurrentIndex(max(0, self.layout_box.findData(s.get("layout", "classic"))))
         self.startup = QCheckBox("Start with Windows (runs next to the clock)")
         self.startup.setChecked(s.get("startup", False))
         self.startup.setEnabled(sys.platform == "win32")
@@ -1345,7 +1352,7 @@ class SettingsDialog(QDialog):
         guide_btn.setIcon(icon("link", T("icon"), 16))
         guide_btn.clicked.connect(open_browser_guide)
         general = page(
-            form(("Theme", self.theme)),
+            form(("Layout", self.layout_box), ("Theme", self.theme)),
             label("System follows Windows: light during the day if Windows is light, dark otherwise.", "Muted", True),
             "", label("STARTUP", "Section"), self.startup,
             "", label("CLIPBOARD", "Section"), self.clip, ind,
@@ -1525,6 +1532,7 @@ class SettingsDialog(QDialog):
     def _save(self):
         s = self.mgr.settings
         s["theme"] = self.theme.currentData()
+        new_layout = self.layout_box.currentData()
         s["clipboard"] = self.clip.isChecked()
         s["clipboard_video"] = self.clip_video.isChecked()
         s["save_dir"] = self.folder.text().strip() or s["save_dir"]
@@ -1562,6 +1570,7 @@ class SettingsDialog(QDialog):
 
 
 # ---------------------------------------------------------------- main window
+LAYOUTS = [("classic", "Classic — full list"), ("dashboard", "Dashboard — cards & preview")]
 COLS = ["", "Name", "Size", "Status", "Time Left", "Added"]
 SORT_KEYS = {1: "name", 2: "size", 3: "status", 4: "eta", 5: "added"}
 
@@ -1678,15 +1687,28 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self._build_toolbar())
-        v.addWidget(self._build_banner())
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_table())
         self.stack.addWidget(self._build_empty())
         v.addWidget(self.stack, 1)
         v.addWidget(self._build_bottom())
+        self._right_lay = v
         h.addWidget(right, 1)
         outer.addWidget(body, 1)
-        self.setCentralWidget(root)
+        self.classic = root
+
+        from dashboard import Dashboard
+        self.views = QStackedWidget()
+        self.views.addWidget(root)
+        self.dash = Dashboard(self)
+        self.views.addWidget(self.dash)
+        container = QWidget()
+        cv = QVBoxLayout(container)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        cv.addWidget(self._build_banner())
+        cv.addWidget(self.views, 1)
+        self.setCentralWidget(container)
         self.setAcceptDrops(True)
 
         # keyboard shortcuts
@@ -1719,7 +1741,7 @@ class MainWindow(QMainWindow):
         self._apply_limit_ui()
         self._apply_when_ui()
         self._update_disk()
-        self.refresh()
+        self.apply_layout()
         self._update_buttons()
 
     def _build_tray_menu(self):
@@ -1772,6 +1794,7 @@ class MainWindow(QMainWindow):
         self._apply_when_ui()
         self.gauge.update()
         self.table.viewport().update()
+        self.dash.retheme()
         self.refresh()
 
     # ---- when downloads finish ----
@@ -2176,15 +2199,13 @@ class MainWindow(QMainWindow):
             cap.setChecked(self.mgr.settings.get("capture", True))
             m.addAction(icon("broom", c, 16), "Disk Cleaner…", self.disk_cleaner)
         elif name == "View":
-            tm = m.addMenu(icon("palette", c, 16), "Theme")
-            grp = QActionGroup(tm)
-            cur = self.mgr.settings.get("theme", "aurora")
-            for key, text in theme.CHOICES:
-                a = tm.addAction(theme_swatch(key), text)
+            lm = m.addMenu(icon("stack", c, 16), "Layout")
+            for key, text in LAYOUTS:
+                a = lm.addAction(text)
                 a.setCheckable(True)
-                a.setChecked(key == cur)
-                grp.addAction(a)
-                a.triggered.connect(lambda _=False, k=key: self._set_theme(k))
+                a.setChecked(key == self.layout_key())
+                a.triggered.connect(lambda _=False, k=key: (self.apply_layout(k), self.mgr.save()))
+            self.fill_theme_menu(m.addMenu(icon("palette", c, 16), "Theme"))
             m.addSeparator()
             m.addAction(icon("gear", c, 16), "Options…", self.settings_dialog)
         elif name == "Help":
@@ -2259,8 +2280,8 @@ class MainWindow(QMainWindow):
         disk = QFrame()
         disk.setObjectName("Card")
         dv = QVBoxLayout(disk)
-        dv.setContentsMargins(16, 14, 16, 16)
-        dv.setSpacing(4)
+        dv.setContentsMargins(16, 12, 16, 14)
+        dv.setSpacing(2)
         top = QHBoxLayout()
         self._disk_icon = QLabel()
         self._disk_icon.setPixmap(pixmap("disk", T("icon"), 20))
@@ -2287,7 +2308,7 @@ class MainWindow(QMainWindow):
         self.disk_path = label("", "Muted")
         self.disk_path.setAlignment(Qt.AlignCenter)
         dv.addWidget(self.disk_path)
-        dv.addSpacing(10)
+        dv.addSpacing(8)
         clean = QPushButton("Disk Cleaner")
         clean.setObjectName("Gradient")
         clean.setCursor(Qt.PointingHandCursor)
@@ -2320,7 +2341,7 @@ class MainWindow(QMainWindow):
 
         pill = QFrame()
         pill.setObjectName("AddPill")
-        pill.setFixedWidth(330)
+        pill.setFixedWidth(290)
         ph = QHBoxLayout(pill)
         ph.setContentsMargins(14, 6, 6, 6)
         ph.setSpacing(8)
@@ -2349,7 +2370,7 @@ class MainWindow(QMainWindow):
             f.setFixedSize(1, 40)
             w = QWidget()
             l = QHBoxLayout(w)
-            l.setContentsMargins(10, 0, 10, 0)
+            l.setContentsMargins(6, 0, 6, 0)
             l.addWidget(f)
             tb.addWidget(w)
 
@@ -2437,6 +2458,19 @@ class MainWindow(QMainWindow):
         self.table = t
         self._update_header_labels()
         return t
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        t = getattr(self, "table", None)
+        if t is None:
+            return
+        w = t.viewport().width() or self.width() - 300
+        if w < 980:
+            widths = ((0, 44), (2, 84), (3, 190), (4, 80), (5, 96))
+        else:
+            widths = ((0, 52), (2, 110), (3, 230), (4, 110), (5, 120))
+        for c, cw in widths:
+            t.setColumnWidth(c, cw)
 
     def eventFilter(self, obj, ev):
         if getattr(self, "table", None) is not None and obj is self.table.viewport():
@@ -2535,7 +2569,7 @@ class MainWindow(QMainWindow):
             frac = u.used / u.total if u.total else 0
             self.gauge.set_value(frac)
             self.disk_pct.setText(f"{frac * 100:.0f}%")
-            self.disk_path.setText(f"{folder}\n{human_size(u.free)} free of {human_size(u.total)}")
+            self.disk_path.setText(f"{human_size(u.free)} free of {human_size(u.total)}")
             self.disk_path.setToolTip(folder)
         except OSError:
             self.disk_pct.setText("—")
@@ -2614,6 +2648,12 @@ class MainWindow(QMainWindow):
                 if it.kind == "torrent" and it.awaiting_files and it.status == "downloading":
                     self.choose_files(it, new=True)
                     break
+        if self.layout_key() == "dashboard":
+            self.dash.tick()
+        self._disk_poll += 1
+        if self._disk_poll >= 20:
+            self._disk_poll = 0
+            self._update_disk()
         for it in self.mgr.items:
             if it.status == "done" and it.id not in self._notified:
                 self._notified.add(it.id)
@@ -2921,7 +2961,10 @@ class MainWindow(QMainWindow):
             self.toggle_selected()
 
     def remove_selected(self):
-        items = self._selected()
+        self.remove_items(self._selected())
+
+    def remove_items(self, items):
+        items = [i for i in items if i]
         if not items:
             return
         box = QMessageBox(self)
@@ -2941,6 +2984,77 @@ class MainWindow(QMainWindow):
             return
         for it in items:
             self.mgr.remove(it, delete_file=clicked is also)
+        self.refresh()
+        if self.layout_key() == "dashboard":
+            self.dash.refresh(force=True)
+
+    # ---- helpers shared with the dashboard layout ----
+    def category(self, it):
+        return item_category(it)
+
+    def app_icon_file(self):
+        return app_icon_path()
+
+    def open_item(self, it):
+        if it.status == "done" and it.path and os.path.exists(it.path):
+            open_path(it.path)
+
+    def show_item_folder(self, it):
+        if it.path and os.path.exists(it.path):
+            show_in_folder(it.path)
+        elif it.path and os.path.exists(it.path + ".part"):
+            show_in_folder(it.path + ".part")
+        else:
+            os.makedirs(it.save_dir, exist_ok=True)
+            open_path(it.save_dir)
+
+    def open_download_folder(self):
+        os.makedirs(self.mgr.settings["save_dir"], exist_ok=True)
+        open_path(self.mgr.settings["save_dir"])
+
+    def open_browser_guide(self):
+        open_browser_guide()
+
+    def fill_theme_menu(self, tm):
+        grp = QActionGroup(tm)
+        cur = self.mgr.settings.get("theme", "aurora")
+        for key, text in theme.CHOICES:
+            a = tm.addAction(theme_swatch(key), text)
+            a.setCheckable(True)
+            a.setChecked(key == cur)
+            grp.addAction(a)
+            a.triggered.connect(lambda _=False, k=key: self._set_theme(k))
+
+    def set_filter(self, key):
+        li = self._filter_items.get(key)
+        if li is not None:
+            self.nav.setCurrentItem(li)
+        self._filter = key
+        self._row_ids = []
+        self.refresh()
+
+    def embed_list(self, layout):
+        """Show the download list inside another layout (the dashboard's list page)."""
+        if self.stack.parent() is not None and layout.indexOf(self.stack) >= 0:
+            return
+        layout.addWidget(self.stack)
+
+    # ---- layouts ----
+    def layout_key(self):
+        return self.mgr.settings.get("layout", "classic")
+
+    def apply_layout(self, key=None):
+        key = key or self.layout_key()
+        self.mgr.settings["layout"] = key
+        if key == "dashboard":
+            self.views.setCurrentWidget(self.dash)
+            self.dash.pages.setCurrentIndex(0)
+            self.dash._nav_click("home")
+            self.dash.refresh(force=True)
+        else:
+            if self._right_lay.indexOf(self.stack) < 0:
+                self._right_lay.insertWidget(1, self.stack, 1)
+            self.views.setCurrentWidget(self.classic)
         self.refresh()
 
     def open_selected(self):
@@ -3103,6 +3217,19 @@ def shots(out):
         w.apply_theme(key)
         w.refresh()
         save(w, f"main_{key}")
+    w.apply_layout("dashboard")
+    for key in ("glass", "aurora", "daylight"):
+        w.apply_theme(key)
+        w.dash.selected = mgr.items[0].id
+        for _ in range(30):
+            w.dash.st_speed.wave.push(6e6 + 3e6 * __import__("math").sin(_ / 3))
+            w.dash.net_wave.push(5e6 + 2.5e6 * __import__("math").sin(_ / 2.5))
+        w.dash.refresh(force=True)
+        save(w, f"dash_{key}")
+    w.apply_theme("glass")
+    w.dash.show_list("unfinished", "Downloads")
+    save(w, "dash_list")
+    w.apply_layout("classic")
     w.apply_theme("aurora")
     w.refresh()
     w.banner.hide()

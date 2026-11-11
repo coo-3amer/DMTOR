@@ -74,6 +74,8 @@ DEFAULT_SETTINGS = {
     "torrent_up": 256,
     # look
     "theme": "aurora",
+    "layout": "classic",
+    "turbo": False,
     # folders per category, e.g. {"Video": "D:/Movies"} (missing/empty = default)
     "category_dirs": {},
     # clipboard
@@ -160,8 +162,9 @@ class Manager:
 
     # ---- creating items ----
     def new_file(self, url, name="", headers=None, save_dir=None):
+        segs = max(self.settings["segments"], 16) if self.settings.get("turbo") else self.settings["segments"]
         return FileDownload(url, save_dir or self.settings["save_dir"], name, headers,
-                            self.settings["segments"], self.settings["categorize"])
+                            segs, self.settings["categorize"])
 
     def new_video(self, url, quality="best", save_dir=None, referrer=""):
         return VideoDownload(url, save_dir or self.settings["save_dir"], quality, referrer=referrer)

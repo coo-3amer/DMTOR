@@ -7,6 +7,8 @@ from PySide6.QtGui import QPalette, QColor
 THEMES = {
     "aurora": ("Aurora", dict(bg="#101219", text="#e7e8ee", muted="#8d92a6", acc="#a855f7", acc2="#14b8a6",
                               on_acc="#ffffff")),
+    "glass": ("Glass", dict(bg="#070d1c", text="#e6f1ff", muted="#8ea3c2", acc="#22d3ee", acc2="#3b82f6",
+                            on_acc="#03131c")),
     "midnight": ("Midnight", dict(bg="#15181d", text="#e6e8eb", muted="#8b93a1", acc="#3b82f6", acc2="#22d3ee",
                                   on_acc="#ffffff")),
     "graphite": ("Graphite", dict(bg="#161616", text="#ececec", muted="#8f8f8f", acc="#f97316", acc2="#facc15",
@@ -95,6 +97,8 @@ def build(key):
         teal="#0d9488" if light else "#2dd4bf", folder="#d39b1f" if light else "#e8c26a",
         card="#ffffff" if light else m(0.035), card_border=m(0.09) if light else m(0.07),
         row_hover=m(0.04) if light else m(0.045), row_sel=mix(bg, acc, 0.10) if light else mix(bg, acc, 0.13),
+        card_hi="#ffffff" if light else mix(m(0.06), acc, 0.05), card_in=m(0.025) if light else m(0.05),
+        glow_border=mix(m(0.1), acc, 0.35) if light else mix(m(0.08), acc, 0.32),
     )
     c["grad"] = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['acc2']}, stop:1 {c['acc']})"
     a2h, ah = mix(c["acc2"], "#ffffff", 0.12), mix(c["acc"], "#ffffff", 0.12)
@@ -163,21 +167,22 @@ QLineEdit#Search:focus {{ border:1px solid {c['acc']}; }}
 #VLine {{ background:{c['line2']}; }}
 QFrame#Card {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:16px; }}
 QTreeWidget#Nav {{ background:transparent; border:none; color:{c['side_text']}; outline:0; }}
-QTreeWidget#Nav::item {{ padding:7px 4px; border-radius:8px; margin:1px 0; }}
+QTreeWidget#Nav::item {{ padding:5px 4px; border-radius:8px; margin:0; }}
 QTreeWidget#Nav::item:hover {{ background:{c['hover']}; }}
 QTreeWidget#Nav::item:selected {{ background:{c['row_sel']}; color:{c['strong']}; }}
 QTreeWidget#Nav::branch {{ background:transparent; image:none; border:none; }}
 #CardTitle {{ color:{c['strong']}; font-weight:600; }}
-#GaugeText {{ color:{c['strong']}; font-size:20pt; font-weight:700; }}
+#GaugeText {{ color:{c['strong']}; font-size:17pt; font-weight:700; }}
 QPushButton#Gradient {{ background:{c['grad']}; border:none; border-radius:14px; color:{c['on_acc']};
     font-weight:600; padding:11px 18px; }}
 QPushButton#Gradient:hover {{ background:{c['grad_h']}; }}
 QToolButton#Flat {{ background:transparent; border:none; border-radius:8px; padding:4px; }}
+QToolButton#Flat::menu-indicator {{ image:none; width:0; }}
 QToolButton#Flat:hover {{ background:{c['hover']}; }}
 
-QToolBar#Tools {{ background:{c['bg']}; border:none; border-bottom:1px solid {c['line2']}; padding:12px 14px; spacing:2px; }}
-QToolBar#Tools QToolButton {{ background:transparent; border:none; border-radius:10px; padding:6px 8px;
-    color:{c['muted']}; min-width:58px; }}
+QToolBar#Tools {{ background:{c['bg']}; border:none; border-bottom:1px solid {c['line2']}; padding:12px 10px; spacing:0px; }}
+QToolBar#Tools QToolButton {{ background:transparent; border:none; border-radius:10px; padding:6px 3px;
+    color:{c['muted']}; min-width:54px; }}
 QToolBar#Tools QToolButton:hover {{ background:{c['hover']}; color:{c['strong']}; }}
 QToolBar#Tools QToolButton:pressed {{ background:{c['press']}; }}
 QToolBar#Tools QToolButton:disabled {{ color:{c['faint']}; }}
@@ -187,8 +192,8 @@ QToolBar#Tools QToolButton::menu-button {{ border:none; width:0; }}
 QToolBar#Tools QFrame#VLine {{ background:{c['line']}; }}
 QFrame#AddPill {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:16px; }}
 QFrame#AddPill QLineEdit {{ background:transparent; border:none; padding:6px 4px; font-size:11pt; }}
-QToolButton#Go {{ background:{c['grad']}; border:none; border-radius:14px; }}
-QToolButton#Go:hover {{ background:{c['grad_h']}; }}
+QToolBar#Tools QToolButton#Go {{ background:{c['grad']}; border:none; border-radius:14px; min-width:0; padding:0; }}
+QToolBar#Tools QToolButton#Go:hover {{ background:{c['grad_h']}; }}
 
 #Bottom {{ background:{c['bg']}; border-top:1px solid {c['line2']}; }}
 #Bottom QLabel {{ color:{c['muted']}; }}
@@ -197,6 +202,44 @@ QToolButton#CatchPill {{ background:{c['card']}; border:1px solid {c['card_borde
     padding:5px 12px; color:{c['muted']}; }}
 QToolButton#CatchPill:hover {{ color:{c['strong']}; }}
 QToolButton#CatchPill[off="true"] {{ background:{c['warn_bg']}; color:{c['warn_fg']}; border-color:{c['warn_bg']}; }}
+
+/* ---------- dashboard layout ---------- */
+QFrame#GCard {{ background:qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {c['card_hi']}, stop:1 {c['card']});
+    border:1px solid {c['glow_border']}; border-radius:18px; }}
+QFrame#GInner {{ background:{c['card_in']}; border:1px solid {c['card_border']}; border-radius:14px; }}
+QFrame#GRow {{ background:{c['card_in']}; border:1px solid {c['card_border']}; border-radius:12px; }}
+QFrame#GRow:hover {{ border:1px solid {c['glow_border']}; }}
+QFrame#GRow[sel="true"] {{ border:1px solid {c['acc']}; background:{c['row_sel']}; }}
+QFrame#GBottom {{ background:transparent; border-top:1px solid {c['line2']}; }}
+#BrandBig {{ color:{c['strong']}; font-size:16pt; font-weight:700; }}
+#PageTitle {{ color:{c['strong']}; font-size:17pt; font-weight:700; }}
+#SectionTitle {{ color:{c['strong']}; font-size:12.5pt; font-weight:700; }}
+#StatValue {{ color:{c['strong']}; font-size:18pt; font-weight:700; }}
+QLabel#StatIcon {{ background:{c['row_sel']}; border-radius:22px; }}
+#RowName {{ color:{c['strong']}; font-weight:600; }}
+#RowMeta {{ color:{c['text']}; }}
+#DetailVal {{ color:{c['strong']}; }}
+#NetDown {{ color:{c['acc']}; font-weight:700; font-size:11pt; }}
+#NetUp {{ color:{c['acc2']}; font-weight:700; font-size:11pt; }}
+QLabel#NavBadge {{ background:{c['acc']}; color:{c['on_acc']}; border-radius:11px; font-weight:700; }}
+QToolButton#NavBtn {{ background:transparent; border:1px solid transparent; border-radius:12px; padding:10px 12px;
+    color:{c['text']}; text-align:left; font-size:11pt; }}
+QToolButton#NavBtn:hover {{ background:{c['hover']}; }}
+QToolButton#NavBtn:checked {{ background:{c['row_sel']}; border:1px solid {c['glow_border']}; color:{c['strong']};
+    font-weight:600; }}
+QToolButton#RoundBtn {{ background:{c['btn']}; border:1px solid {c['btn_border']}; border-radius:17px; }}
+QToolButton#RoundBtn:hover {{ background:{c['btn_hover']}; }}
+QToolButton#SquareBtn {{ background:{c['card_in']}; border:1px solid {c['card_border']}; border-radius:12px; }}
+QToolButton#SquareBtn:hover {{ border-color:{c['glow_border']}; }}
+QToolButton#PillBtn {{ background:{c['btn']}; border:1px solid {c['btn_border']}; border-radius:10px; padding:6px 12px;
+    color:{c['text']}; }}
+QToolButton#PillBtn:hover {{ background:{c['btn_hover']}; }}
+QToolButton#LinkBtn {{ background:transparent; border:none; color:{c['text']}; padding:4px 6px; }}
+QToolButton#LinkBtn:hover {{ color:{c['acc']}; }}
+QToolButton#DirBtn {{ background:{c['card_in']}; border:1px solid {c['card_border']}; border-radius:12px;
+    padding:8px 14px; color:{c['text']}; min-width:260px; text-align:left; }}
+QToolButton#DirBtn::menu-indicator {{ image:url({asset('chevron-down.png')}); subcontrol-position:right center;
+    right:10px; width:12px; height:12px; }}
 
 QTableWidget#List {{ background:{c['bg']}; alternate-background-color:{c['alt']}; border:none; color:{c['text']};
     selection-background-color:{c['acc_dim']}; selection-color:{c['strong']}; }}
