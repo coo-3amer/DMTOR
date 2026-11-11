@@ -691,6 +691,12 @@ class Dashboard(GlassBackground):
         self.open_btn.setObjectName("Flat")
         self.open_btn.setToolTip("Open file")
         self.open_btn.clicked.connect(self._open_selected)
+        fb = QToolButton()
+        fb.setObjectName("Flat")
+        fb.setToolTip("Show in folder")
+        fb.clicked.connect(self._show_folder)
+        self.folder_btn = fb
+        ph.addWidget(fb)
         ph.addWidget(self.open_btn)
         sv.addLayout(ph)
         self.preview = Thumb(310, 150, 12)
@@ -717,13 +723,7 @@ class Dashboard(GlassBackground):
             row.addWidget(val, 1)
             dv.addLayout(row)
             self.details[key] = val
-        fb = QToolButton()
-        fb.setObjectName("PillBtn")
-        fb.setText("Show in folder")
-        fb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        fb.clicked.connect(self._show_folder)
-        self.folder_btn = fb
-        dv.addWidget(fb, 0, Qt.AlignRight)
+        dv.addStretch()
         sv.addWidget(det, 1)
         g.addWidget(side, 2, 1, 2, 1)
         g.setRowStretch(2, 1)
@@ -855,7 +855,7 @@ class Dashboard(GlassBackground):
         self.filter_btn.setIcon(icon("settings", T("text"), 20))
         self.add_btn.setIcon(icon("link", T("on_acc"), 18, 2.1))
         self.open_btn.setIcon(icon("open", T("text"), 18))
-        self.folder_btn.setIcon(icon("folder", T("text"), 16))
+        self.folder_btn.setIcon(icon("folder", T("text"), 18))
         self.dir_btn.setIcon(icon("folder", T("text"), 20))
         self.open_dir.setIcon(icon("folder", T("text"), 18))
         if self.search_act:
@@ -949,7 +949,7 @@ class Dashboard(GlassBackground):
             badge = ext.lstrip(".").upper()
         self.preview.set_item(pm, ic, play=(it.status == "done" and ext in VIDEO_EXT), badge=badge)
         fm = d["Name"].fontMetrics()
-        d["Name"].setText(fm.elidedText(it.name or it.url, Qt.ElideMiddle, 210))
+        d["Name"].setText(fm.elidedText(it.name or it.url, Qt.ElideMiddle, 185))
         d["Name"].setToolTip(it.name or it.url)
         d["Type"].setText(f"{cat}" + (f"  ({ext.lstrip('.').upper()})" if ext else ""))
         d["Size"].setText(human_size(it.total) if it.total else "—")
@@ -960,7 +960,7 @@ class Dashboard(GlassBackground):
         eta = (it.total - it.done) / it.speed if run and it.speed and it.total else None
         d["Time left"].setText(human_time(eta) if eta is not None else ("Done" if it.status == "done" else "—"))
         where = os.path.dirname(it.path) if it.path else it.save_dir
-        d["Save to"].setText(fm.elidedText(where, Qt.ElideMiddle, 210))
+        d["Save to"].setText(fm.elidedText(where, Qt.ElideMiddle, 185))
         d["Save to"].setToolTip(where)
         self.open_btn.setEnabled(it.status == "done")
 
