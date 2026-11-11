@@ -73,7 +73,7 @@ DEFAULT_SETTINGS = {
     "torrent_down": 1024,
     "torrent_up": 256,
     # look
-    "theme": "midnight",
+    "theme": "aurora",
     # folders per category, e.g. {"Video": "D:/Movies"} (missing/empty = default)
     "category_dirs": {},
     # clipboard
@@ -104,6 +104,10 @@ class Manager:
         self.load()
         if any(core._same(self.settings["save_dir"], o) for o in OLD_DEFAULTS):
             self.settings["save_dir"] = downloads_dir()
+            self.save()
+        if not self.settings.get("_aurora_20"):          # 2.0: the new look is the default
+            self.settings["theme"] = "aurora"
+            self.settings["_aurora_20"] = True
             self.save()
         if not self.settings.get("_clipboard_reset_19"):   # 1.9: catching copied links is now opt-in
             self.settings["clipboard"] = False

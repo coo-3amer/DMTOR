@@ -5,13 +5,20 @@ from PySide6.QtGui import QPalette, QColor
 
 # key: (label, base colors). Everything else is derived from these.
 THEMES = {
-    "midnight": ("Midnight", dict(bg="#15181d", text="#e6e8eb", muted="#8b93a1", acc="#3b82f6", on_acc="#ffffff")),
-    "graphite": ("Graphite", dict(bg="#161616", text="#ececec", muted="#8f8f8f", acc="#f97316", on_acc="#1a0b00")),
-    "daylight": ("Daylight", dict(bg="#ffffff", text="#111827", muted="#6b7280", acc="#2563eb", on_acc="#ffffff",
-                                  light=True)),
-    "neon": ("Neon", dict(bg="#140f1f", text="#efe9ff", muted="#9d92bf", acc="#c026d3", on_acc="#ffffff")),
-    "emerald": ("Emerald", dict(bg="#121816", text="#e4ece8", muted="#87968f", acc="#10b981", on_acc="#04140d")),
-    "ocean": ("Ocean", dict(bg="#1f2633", text="#e5e9f0", muted="#94a0b4", acc="#14b8a6", on_acc="#03201c")),
+    "aurora": ("Aurora", dict(bg="#101219", text="#e7e8ee", muted="#8d92a6", acc="#a855f7", acc2="#14b8a6",
+                              on_acc="#ffffff")),
+    "midnight": ("Midnight", dict(bg="#15181d", text="#e6e8eb", muted="#8b93a1", acc="#3b82f6", acc2="#22d3ee",
+                                  on_acc="#ffffff")),
+    "graphite": ("Graphite", dict(bg="#161616", text="#ececec", muted="#8f8f8f", acc="#f97316", acc2="#facc15",
+                                  on_acc="#1a0b00")),
+    "daylight": ("Daylight", dict(bg="#f6f7fb", text="#111827", muted="#6b7280", acc="#7c3aed", acc2="#0d9488",
+                                  on_acc="#ffffff", light=True)),
+    "neon": ("Neon", dict(bg="#140f1f", text="#efe9ff", muted="#9d92bf", acc="#c026d3", acc2="#6366f1",
+                          on_acc="#ffffff")),
+    "emerald": ("Emerald", dict(bg="#121816", text="#e4ece8", muted="#87968f", acc="#10b981", acc2="#a3e635",
+                                on_acc="#04140d")),
+    "ocean": ("Ocean", dict(bg="#1f2633", text="#e5e9f0", muted="#94a0b4", acc="#14b8a6", acc2="#38bdf8",
+                            on_acc="#03201c")),
 }
 CHOICES = [("system", "System (follow Windows)")] + [(k, v[0]) for k, v in THEMES.items()]
 
@@ -23,7 +30,7 @@ _STATUS_LIGHT = {"queued": None, "downloading": "#2563eb", "pausing": "#b45309",
                  "done": "#059669", "error": "#dc2626"}
 
 C = {}          # the active palette
-KEY = "midnight"
+KEY = "aurora"
 
 
 def _rgb(h):
@@ -53,8 +60,8 @@ def system_is_light():
 
 def resolve(key):
     if key == "system":
-        return "daylight" if system_is_light() else "midnight"
-    return key if key in THEMES else "midnight"
+        return "daylight" if system_is_light() else "aurora"
+    return key if key in THEMES else "aurora"
 
 
 def build(key):
@@ -86,7 +93,12 @@ def build(key):
         danger_fg="#b42318" if light else "#ffb4ae", danger_icon="#dc2626" if light else "#ef8f89",
         ok="#059669" if light else "#19a974",
         teal="#0d9488" if light else "#2dd4bf", folder="#d39b1f" if light else "#e8c26a",
+        card="#ffffff" if light else m(0.035), card_border=m(0.09) if light else m(0.07),
+        row_hover=m(0.04) if light else m(0.045), row_sel=mix(bg, acc, 0.10) if light else mix(bg, acc, 0.13),
     )
+    c["grad"] = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c['acc2']}, stop:1 {c['acc']})"
+    a2h, ah = mix(c["acc2"], "#ffffff", 0.12), mix(c["acc"], "#ffffff", 0.12)
+    c["grad_h"] = f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {a2h}, stop:1 {ah})"
     return c
 
 
@@ -138,12 +150,61 @@ QToolBar#Top QToolButton#qt_toolbar_ext_button {{ background:{c['btn']}; border-
 QToolBar#Top QToolButton[popupMode="1"] {{ padding-right:22px; }}
 QToolBar#Top QToolButton#Capture[off="true"] {{ background:{c['warn_bg']}; color:{c['warn_fg']}; }}
 
+/* ---------- new main window ---------- */
+#Root, #Body, #Right {{ background:{c['bg']}; }}
+#Header {{ background:{c['bg']}; border-bottom:1px solid {c['line2']}; }}
+#HeaderBrand {{ color:{c['strong']}; font-weight:700; font-size:11pt; }}
+QMenuBar#MainMenu {{ background:transparent; color:{c['muted']}; spacing:6px; }}
+QMenuBar#MainMenu::item {{ background:transparent; padding:6px 12px; border-radius:7px; color:{c['muted']}; }}
+QMenuBar#MainMenu::item:selected {{ background:{c['hover']}; color:{c['strong']}; }}
+QLineEdit#Search {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:14px;
+    padding:8px 12px; min-width:260px; }}
+QLineEdit#Search:focus {{ border:1px solid {c['acc']}; }}
+#VLine {{ background:{c['line2']}; }}
+QFrame#Card {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:16px; }}
+QTreeWidget#Nav {{ background:transparent; border:none; color:{c['side_text']}; outline:0; }}
+QTreeWidget#Nav::item {{ padding:7px 4px; border-radius:8px; margin:1px 0; }}
+QTreeWidget#Nav::item:hover {{ background:{c['hover']}; }}
+QTreeWidget#Nav::item:selected {{ background:{c['row_sel']}; color:{c['strong']}; }}
+QTreeWidget#Nav::branch {{ background:transparent; image:none; border:none; }}
+#CardTitle {{ color:{c['strong']}; font-weight:600; }}
+#GaugeText {{ color:{c['strong']}; font-size:20pt; font-weight:700; }}
+QPushButton#Gradient {{ background:{c['grad']}; border:none; border-radius:14px; color:{c['on_acc']};
+    font-weight:600; padding:11px 18px; }}
+QPushButton#Gradient:hover {{ background:{c['grad_h']}; }}
+QToolButton#Flat {{ background:transparent; border:none; border-radius:8px; padding:4px; }}
+QToolButton#Flat:hover {{ background:{c['hover']}; }}
+
+QToolBar#Tools {{ background:{c['bg']}; border:none; border-bottom:1px solid {c['line2']}; padding:12px 14px; spacing:2px; }}
+QToolBar#Tools QToolButton {{ background:transparent; border:none; border-radius:10px; padding:6px 8px;
+    color:{c['muted']}; min-width:58px; }}
+QToolBar#Tools QToolButton:hover {{ background:{c['hover']}; color:{c['strong']}; }}
+QToolBar#Tools QToolButton:pressed {{ background:{c['press']}; }}
+QToolBar#Tools QToolButton:disabled {{ color:{c['faint']}; }}
+QToolBar#Tools QToolButton[on="true"] {{ color:{c['info_fg']}; }}
+QToolBar#Tools QToolButton::menu-indicator {{ image:none; width:0; }}
+QToolBar#Tools QToolButton::menu-button {{ border:none; width:0; }}
+QToolBar#Tools QFrame#VLine {{ background:{c['line']}; }}
+QFrame#AddPill {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:16px; }}
+QFrame#AddPill QLineEdit {{ background:transparent; border:none; padding:6px 4px; font-size:11pt; }}
+QToolButton#Go {{ background:{c['grad']}; border:none; border-radius:14px; }}
+QToolButton#Go:hover {{ background:{c['grad_h']}; }}
+
+#Bottom {{ background:{c['bg']}; border-top:1px solid {c['line2']}; }}
+#Bottom QLabel {{ color:{c['muted']}; }}
+#SpeedVal {{ color:{c['strong']}; font-size:12pt; font-weight:600; }}
+QToolButton#CatchPill {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:12px;
+    padding:5px 12px; color:{c['muted']}; }}
+QToolButton#CatchPill:hover {{ color:{c['strong']}; }}
+QToolButton#CatchPill[off="true"] {{ background:{c['warn_bg']}; color:{c['warn_fg']}; border-color:{c['warn_bg']}; }}
+
 QTableWidget#List {{ background:{c['bg']}; alternate-background-color:{c['alt']}; border:none; color:{c['text']};
     selection-background-color:{c['acc_dim']}; selection-color:{c['strong']}; }}
-QTableWidget#List::item {{ border-bottom:1px solid {c['row_line']}; padding-left:10px; }}
-QTableWidget#List::item:selected {{ background:{c['acc_dim']}; color:{c['strong']}; }}
-QHeaderView::section {{ background:{c['bg']}; color:{c['muted']}; border:none; border-bottom:1px solid {c['line']};
-    padding:9px 10px; font-weight:600; font-size:9pt; }}
+QTableWidget#List::item {{ border:none; padding-left:10px; }}
+QTableWidget#List::item:selected {{ background:transparent; color:{c['strong']}; }}
+QHeaderView::section {{ background:{c['bg']}; color:{c['muted']}; border:none; border-bottom:1px solid {c['line2']};
+    padding:12px 10px; font-size:10pt; }}
+QHeaderView::up-arrow, QHeaderView::down-arrow {{ width:0; height:0; image:none; }}
 
 #InfoCard {{ background:{c['field']}; border:1px solid {c['line']}; border-radius:12px; }}
 #InfoName {{ color:{c['strong']}; font-weight:600; }}
@@ -218,7 +279,7 @@ QTreeWidget#Files::indicator:indeterminate {{ background:{c['acc_dim']}; border-
 """
 
 
-def apply(app, asset, key="midnight"):
+def apply(app, asset, key="aurora"):
     """Activate a theme (key may be 'system'). Returns the concrete theme key in use."""
     global KEY
     KEY = resolve(key)
@@ -244,4 +305,4 @@ def apply(app, asset, key="midnight"):
 
 
 # load something sensible before apply() is called (e.g. in tests)
-C.update(build("midnight"))
+C.update(build("aurora"))

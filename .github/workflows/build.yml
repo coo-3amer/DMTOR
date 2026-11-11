@@ -80,7 +80,10 @@ jobs:
 
       - name: Build installer (Inno Setup)
         shell: pwsh
+        env:
+          INSTALLER_PASSWORD: ${{ secrets.INSTALLER_PASSWORD }}
         run: |
+          if ($env:INSTALLER_PASSWORD) { Write-Host "Install password: ON" } else { Write-Host "Install password: off (no INSTALLER_PASSWORD secret)" }
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           $ver = (Select-String -Path app/features.py -Pattern 'VERSION = "([0-9.]+)"').Matches[0].Groups[1].Value

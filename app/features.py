@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-VERSION = "1.9.2"
+VERSION = "2.0"
 REPO = "coo-3amer/DMTOR"   # GitHub repository (its name stays)
 
 ACTIONS = [("none", "Do nothing"), ("sleep", "Put the computer to sleep"),
@@ -213,11 +213,29 @@ def download_update(url, dest, progress=None, stop=None):
     return dest
 
 
+def install_key():
+    """The install password saved by the Setup on this PC (none if the Setup had no password)."""
+    if sys.platform != "win32":
+        return ""
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\EDENLOAD")
+        v = winreg.QueryValueEx(k, "InstallKey")[0]
+        winreg.CloseKey(k)
+        return v or ""
+    except OSError:
+        return ""
+
+
 def run_installer(path):
-    """Start the new Setup silently; it closes EDENLOAD, updates it and opens it again."""
+    """Start the new Setup; it closes EDENLOAD, updates it and opens it again.
+    With a saved install password it runs silently; without one the Setup shows its password page."""
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen([path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"],
-                     creationflags=flags, close_fds=True)
+    args = [path, "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"]
+    key = install_key()
+    if key:
+        args.append("/PASSWORD=" + key)
+    subprocess.Popen(args, creationflags=flags, close_fds=True)
 
 
 def update_due(settings, every_hours=12):

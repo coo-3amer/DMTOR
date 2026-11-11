@@ -3,7 +3,14 @@
   #define AppVersion "1.7.0"
 #endif
 
+; Optional install password: set the INSTALLER_PASSWORD secret on GitHub. It never appears in the code.
+#define InstallPwd GetEnv("INSTALLER_PASSWORD")
+
 [Setup]
+#if InstallPwd != ""
+Password={#InstallPwd}
+Encryption=yes
+#endif
 AppId={{6F0C2B7E-6C2E-4C1B-9E0B-5D4D9A2F7A31}
 AppName=EDENLOAD
 AppVersion={#AppVersion}
@@ -86,11 +93,18 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  { remember the "start with Windows" choice inside the app's own settings too }
   if CurStep = ssPostInstall then
+  begin
+    { remember the "start with Windows" choice inside the app's own settings too }
     if WizardIsTaskSelected('startup') then
     begin
       ForceDirectories(ExpandConstant('{userappdata}\EDENLOAD'));
       SaveStringToFile(ExpandConstant('{userappdata}\EDENLOAD\startup.flag'), '1', False);
     end;
+#if InstallPwd != ""
+    { remember the password on this PC so automatic updates don't ask for it again }
+    if WizardForm.PasswordEdit.Text <> '' then
+      RegWriteStringValue(HKEY_CURRENT_USER, 'Software\EDENLOAD', 'InstallKey', WizardForm.PasswordEdit.Text);
+#endif
+  end;
 end;

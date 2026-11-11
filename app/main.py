@@ -10,8 +10,9 @@ import subprocess
 import urllib.request
 from urllib.parse import urlparse
 
-from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QObject, Signal
-from PySide6.QtGui import QIcon, QFont, QPainter, QColor, QKeySequence, QShortcut, QPixmap
+from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QPointF, QPoint, QObject, Signal, QEvent
+from PySide6.QtGui import (QIcon, QFont, QPainter, QColor, QKeySequence, QShortcut, QPixmap, QPen, QBrush,
+                           QLinearGradient, QConicalGradient, QPainterPath)
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QToolBar, QToolButton,
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton, QComboBox,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QWidget, QFrame, QListWidget, QListWidgetItem,
     QStackedWidget, QSizePolicy, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem,
     QTreeWidgetItemIterator, QTabWidget, QTimeEdit, QProgressBar, QScrollArea, QGridLayout,
+    QStyle, QMenuBar, QActionGroup,
 )
 from PySide6.QtCore import QTime
 
@@ -213,50 +215,194 @@ def label(text, name=None, wrap=False):
 
 
 # ---------------------------------------------------------------- table painters
-class ProgressDelegate(QStyledItemDelegate):
-    def paint(self, p, opt, idx):
-        super().paint(p, opt, idx)
-        frac, status, text = idx.data(Qt.UserRole) or (0.0, "queued", "")
-        color = QColor(theme.status(status)[1])
+TYPE_LABEL = {"Video": "Video", "Music": "Music", "Programs": "Program", "Documents": "Document",
+              "Compressed": "Archive", "Images": "Image", "Torrents": "Torrent", "Other": "File"}
+
+
+class RowDelegate(QStyledItemDelegate):
+    """Paints the rounded row background (hover / selected / checked) — every column uses it."""
+
+    def __init__(self, table, first=False, last=False):
+        super().__init__(table)
+        self.table, self.first, self.last = table, first, last
+
+    def row_bg(self, p, opt, idx):
+        row = idx.row()
+        sel = bool(opt.state & QStyle.State_Selected)
+        hover = self.table.property("hoverRow") == row
+        if not (sel or hover):
+            return
+        r = QRectF(opt.rect).adjusted(0, 4, 0, -4)
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
-        r = opt.rect.adjusted(12, 0, -12, 0)
-        tw = 58
-        bar = QRectF(r.left(), r.center().y() - 3, max(10, r.width() - tw - 10), 6)
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor(T("track")))
-        p.drawRoundedRect(bar, 3, 3)
-        if frac > 0:
-            fill = QRectF(bar)
-            fill.setWidth(max(6.0, bar.width() * min(frac, 1.0)))
-            p.setBrush(color)
-            p.drawRoundedRect(fill, 3, 3)
-        p.setPen(QColor(T("progress_text")))
-        p.drawText(QRectF(r.right() - tw, r.top(), tw, r.height()), Qt.AlignVCenter | Qt.AlignRight, text)
+        p.setBrush(QColor(T("row_sel") if sel else T("row_hover")))
+        rad = 12
+        path = QPainterPath()
+        left = r.adjusted(-rad if not self.first else 0, 0, 0, 0)
+        right = left.adjusted(0, 0, rad if not self.last else 0, 0)
+        path.addRoundedRect(right, rad, rad)
+        p.setClipRect(opt.rect)
+        p.drawPath(path)
+        p.restore()
+
+    def paint(self, p, opt, idx):
+        self.row_bg(p, opt, idx)
+        text = idx.data(Qt.DisplayRole) or ""
+        p.save()
+        p.setPen(QColor(T("text")))
+        p.drawText(QRectF(opt.rect).adjusted(10, 0, -6, 0), Qt.AlignVCenter | Qt.AlignLeft, text)
         p.restore()
 
 
-class StatusDelegate(QStyledItemDelegate):
+class CheckDelegate(RowDelegate):
     def paint(self, p, opt, idx):
-        super().paint(p, opt, idx)
-        status = idx.data(Qt.UserRole) or "queued"
-        text, color = theme.status(status)
-        extra = idx.data(Qt.UserRole + 1)
-        if extra:
-            text = f"{text} {extra}"
+        self.row_bg(p, opt, idx)
+        on = bool(idx.data(Qt.UserRole))
+        r = QRectF(0, 0, 18, 18)
+        r.moveCenter(QRectF(opt.rect).center())
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
-        r = opt.rect.adjusted(12, 0, -8, 0)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(color))
-        p.drawEllipse(QRectF(r.left(), r.center().y() - 3.5, 7, 7))
-        p.setPen(QColor(color))
-        p.drawText(QRectF(r.left() + 15, r.top(), r.width() - 15, r.height()),
-                   Qt.AlignVCenter | Qt.AlignLeft, text)
+        if on:
+            p.setPen(Qt.NoPen)
+            g = QLinearGradient(r.topLeft(), r.bottomRight())
+            g.setColorAt(0, QColor(T("acc2")))
+            g.setColorAt(1, QColor(T("acc")))
+            p.setBrush(g)
+            p.drawRoundedRect(r, 5, 5)
+            pen = QPen(QColor(T("on_acc")), 2.2)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            p.setPen(pen)
+            c = r.center()
+            p.drawPolyline([QPointF(c.x() - 4.2, c.y() + 0.3), QPointF(c.x() - 1.2, c.y() + 3.2),
+                            QPointF(c.x() + 4.4, c.y() - 3.2)])
+        else:
+            p.setPen(QPen(QColor(T("faint")), 1.6))
+            p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(r.adjusted(0.8, 0.8, -0.8, -0.8), 5, 5)
         p.restore()
 
 
-# ---------------------------------------------------------------- dialogs
+class NameDelegate(RowDelegate):
+    def paint(self, p, opt, idx):
+        self.row_bg(p, opt, idx)
+        name, sub, ic_name = idx.data(Qt.UserRole) or ("", "", "other")
+        r = QRectF(opt.rect)
+        p.save()
+        pm = pixmap(ic_name, T("icon"), 24)
+        p.drawPixmap(int(r.left() + 6), int(r.center().y() - 12), pm)
+        x = r.left() + 46
+        f = QFont(opt.font)
+        f.setPointSizeF(f.pointSizeF() + 0.8)
+        p.setFont(f)
+        p.setPen(QColor(T("strong")))
+        fm = p.fontMetrics()
+        p.drawText(QRectF(x, r.top() + 8, r.width() - 56, r.height() / 2 - 4), Qt.AlignLeft | Qt.AlignBottom,
+                   fm.elidedText(name, Qt.ElideMiddle, int(r.width() - 60)))
+        f2 = QFont(opt.font)
+        f2.setPointSizeF(max(7.5, f2.pointSizeF() - 1.2))
+        p.setFont(f2)
+        p.setPen(QColor(T("muted")))
+        p.drawText(QRectF(x, r.center().y() + 3, r.width() - 56, r.height() / 2 - 8), Qt.AlignLeft | Qt.AlignTop, sub)
+        p.restore()
+
+
+class StatusDelegate(RowDelegate):
+    def paint(self, p, opt, idx):
+        self.row_bg(p, opt, idx)
+        status, frac, top, right, extra = idx.data(Qt.UserRole) or ("queued", 0.0, "", "", "")
+        r = QRectF(opt.rect).adjusted(10, 0, -12, 0)
+        p.save()
+        p.setRenderHint(QPainter.Antialiasing)
+        small = QFont(opt.font)
+        small.setPointSizeF(max(7.5, small.pointSizeF() - 1.2))
+        if status in ("downloading", "pausing") or (status == "paused" and frac > 0):
+            bar = QRectF(r.left(), r.center().y() + 4, min(170.0, r.width()), 6)
+            p.setPen(QColor(T("text") if status == "downloading" else T("muted")))
+            label_txt = top if status == "downloading" else f"Paused  ·  {top}"
+            p.drawText(QRectF(r.left(), r.top(), r.width(), r.height() / 2 - 2), Qt.AlignLeft | Qt.AlignBottom,
+                       label_txt)
+            if right:
+                p.setFont(small)
+                p.setPen(QColor(T("muted")))
+                p.drawText(QRectF(bar.left(), r.top(), bar.width(), r.height() / 2 - 2),
+                           Qt.AlignRight | Qt.AlignBottom, right)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(T("track")))
+            p.drawRoundedRect(bar, 3, 3)
+            if frac > 0:
+                fill = QRectF(bar)
+                fill.setWidth(max(6.0, bar.width() * min(frac, 1.0)))
+                if status == "downloading":
+                    g = QLinearGradient(bar.topLeft(), bar.topRight())
+                    g.setColorAt(0, QColor(T("acc2")))
+                    g.setColorAt(1, QColor(T("acc")))
+                    p.setBrush(g)
+                else:
+                    p.setBrush(QColor(T("faint")))
+                p.drawRoundedRect(fill, 3, 3)
+        else:
+            text, color = theme.status(status)
+            if status == "done":
+                text, color = "Complete", T("text")
+            if status == "paused":
+                box = QRectF(r.left(), r.center().y() - 7, 14, 14)
+                p.setPen(QPen(QColor(T("muted")), 1.5))
+                p.setBrush(Qt.NoBrush)
+                p.drawRoundedRect(box.adjusted(0.75, 0.75, -0.75, -0.75), 3, 3)
+                r = r.adjusted(22, 0, 0, 0)
+                color = T("muted")
+            p.setPen(QColor(color))
+            p.drawText(r, Qt.AlignVCenter | Qt.AlignLeft, text + (f"  {extra}" if extra else ""))
+        if extra and status in ("downloading", "pausing"):
+            p.setFont(small)
+            p.setPen(QColor(T("muted")))
+            p.drawText(QRectF(r.left(), r.center().y() + 13, r.width(), 16), Qt.AlignLeft | Qt.AlignTop, extra)
+        p.restore()
+
+
+class DiskGauge(QWidget):
+    """Half-circle gauge for the disk-space card."""
+
+    def __init__(self):
+        super().__init__()
+        self.frac = 0.0
+        self.setFixedHeight(96)
+
+    def set_value(self, frac):
+        self.frac = max(0.0, min(1.0, frac))
+        self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        d = min(w - 40, 2 * (h - 14))
+        rect = QRectF((w - d) / 2, 10, d, d)
+        pen = QPen(QColor(T("track")), 12)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        p.drawArc(rect, 180 * 16, -180 * 16)
+        g = QConicalGradient(rect.center(), 180)
+        g.setColorAt(0.0, QColor(T("acc2")))
+        g.setColorAt(0.25, QColor(T("acc")))
+        g.setColorAt(0.5, QColor("#ef4466") if self.frac > 0.85 else QColor(T("acc")))
+        g.setColorAt(1.0, QColor(T("acc2")))
+        pen = QPen(QBrush(g), 12)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        if self.frac > 0:
+            p.drawArc(rect, 180 * 16, int(-180 * 16 * self.frac))
+        p.setPen(QColor(T("muted")))
+        f = QFont(self.font())
+        f.setPointSizeF(max(7.5, f.pointSizeF() - 1.5))
+        p.setFont(f)
+        p.drawText(QRectF(rect.left() - 20, rect.center().y() + 4, 40, 18), Qt.AlignCenter, "0%")
+        p.drawText(QRectF(rect.right() - 20, rect.center().y() + 4, 40, 18), Qt.AlignCenter, "100%")
+        p.end()
+
+
 class _Relay(QObject):
     """Carries a result from a worker thread back to the UI thread."""
     done = Signal(object)
@@ -1061,6 +1207,109 @@ CATEGORY_FOLDERS = [("Video", "Video"), ("Music", "Music"), ("Programs", "Progra
                     ("Compressed", "Archives"), ("Images", "Images"), ("Torrents", "Torrents"), ("Other", "Other")]
 
 
+class CleanerDialog(QDialog):
+    """Find leftovers of cancelled/removed downloads (.part etc.) and delete them."""
+    LEFTOVER = (".part", ".ytdl", ".part-frag", ".temp")
+
+    def __init__(self, parent, mgr):
+        super().__init__(parent)
+        self.mgr = mgr
+        self.setWindowTitle("Disk Cleaner")
+        self.setMinimumSize(620, 480)
+        self.found = self._scan()
+        total = sum(sz for _, sz in self.found)
+        lst = QTreeWidget()
+        lst.setObjectName("Files")
+        lst.setHeaderLabels(["File", "Size"])
+        lst.setRootIsDecorated(False)
+        lst.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        lst.header().setSectionResizeMode(1, QHeaderView.Fixed)
+        lst.setColumnWidth(1, 100)
+        for path, sz in self.found:
+            it = QTreeWidgetItem([path, human_size(sz)])
+            it.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+            lst.addTopLevelItem(it)
+        done = [i for i in mgr.items if i.status == "done"]
+        self.clear_done = QCheckBox(f"Also remove {len(done)} finished download{'s' if len(done) != 1 else ''} "
+                                    "from the list (the files stay on your disk)")
+        self.clear_done.setVisible(bool(done))
+        ok = QPushButton(f"Delete {len(self.found)} leftover{'s' if len(self.found) != 1 else ''}"
+                         f" ({human_size(total) if total else '0 B'})" if self.found else "Clean the list")
+        ok.setObjectName("Gradient")
+        ok.setEnabled(bool(self.found) or bool(done))
+        ok.clicked.connect(self._clean)
+        cancel = QPushButton("Close")
+        cancel.clicked.connect(self.reject)
+        btns = QHBoxLayout()
+        btns.addStretch()
+        btns.addWidget(cancel)
+        btns.addWidget(ok)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 22, 24, 20)
+        lay.addWidget(label("Disk Cleaner", "Title"))
+        lay.addWidget(label("Leftover pieces of downloads that were cancelled or removed from the list. "
+                            "Downloads still in your list are never touched.", "Muted", True))
+        lay.addSpacing(8)
+        if self.found:
+            lay.addWidget(lst, 1)
+        else:
+            lay.addWidget(label("Nothing to clean — no leftovers found. ✓", "Title"))
+            lay.addStretch()
+        lay.addWidget(self.clear_done)
+        lay.addSpacing(8)
+        lay.addLayout(btns)
+
+    def _scan(self):
+        keep = set()
+        for it in self.mgr.items:
+            if it.path:
+                keep.add(os.path.normcase(it.path + ".part"))
+                keep.add(os.path.normcase(it.path))
+        roots = {self.mgr.settings["save_dir"]} | {v for v in core.CATEGORY_DIRS.values() if v}
+        roots |= {os.path.join(self.mgr.settings["save_dir"], n) for n in core.DEFAULT_FOLDERS}
+        # downloads not finished yet (videos write "<title>.f137.mp4.part" etc. before they know their path)
+        unfinished = [os.path.splitext(i.name or "")[0].lower() for i in self.mgr.items
+                      if i.status != "done" and i.name]
+        found, seen = [], set()
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
+            try:
+                names = os.listdir(root)
+            except OSError:
+                continue
+            for n in names:
+                p = os.path.join(root, n)
+                key = os.path.normcase(p)
+                if key in seen or key in keep or not os.path.isfile(p):
+                    continue
+                low = n.lower()
+                if any(u and low.startswith(u) for u in unfinished):
+                    continue
+                if low.endswith(self.LEFTOVER) or ".part-frag" in low:
+                    seen.add(key)
+                    try:
+                        found.append((p, os.path.getsize(p)))
+                    except OSError:
+                        pass
+        return sorted(found)
+
+    def _clean(self):
+        n = 0
+        for p, _ in self.found:
+            try:
+                os.remove(p)
+                n += 1
+            except OSError:
+                pass
+        if self.clear_done.isChecked():
+            for it in [i for i in self.mgr.items if i.status == "done"]:
+                self.mgr.remove(it, delete_file=False)
+        self.mgr.save()
+        QMessageBox.information(self, "Disk Cleaner", f"Done — deleted {n} leftover file{'s' if n != 1 else ''}.")
+        self.accept()
+
+
 class SettingsDialog(QDialog):
     TABS = ["General", "Downloads", "Folders", "Schedule", "Torrents", "Updates"]
 
@@ -1069,7 +1318,7 @@ class SettingsDialog(QDialog):
         self.mgr = mgr
         self.win = parent
         s = mgr.settings
-        self._orig_theme = s.get("theme", "midnight")
+        self._orig_theme = s.get("theme", "aurora")
         self.setWindowTitle("Settings")
         self.resize(660, 600)
 
@@ -1313,34 +1562,64 @@ class SettingsDialog(QDialog):
 
 
 # ---------------------------------------------------------------- main window
-COLS = ["Name", "Size", "Progress", "Speed", "Time left", "Status"]
-FILTERS = [
-    ("all", "All downloads", "all"),
-    ("active", "Downloading", "active"),
-    ("done", "Completed", "done"),
-    ("paused", "Paused & failed", "paused"),
-    None,
-    ("Torrents", "Torrents", "magnet"),
-    ("Video", "Video", "video"),
-    ("Music", "Music", "music"),
-    ("Programs", "Programs", "programs"),
-    ("Documents", "Documents", "documents"),
-    ("Compressed", "Archives", "compressed"),
-    ("Images", "Images", "images"),
-    ("Other", "Other", "other"),
+COLS = ["", "Name", "Size", "Status", "Time Left", "Added"]
+SORT_KEYS = {1: "name", 2: "size", 3: "status", 4: "eta", 5: "added"}
+
+# sidebar: (key, label, icon, children)
+NAV = [
+    ("all", "All Downloads", "stack", [
+        ("Music", "Music", "music"), ("Compressed", "Archives", "compressed"), ("Video", "Videos", "video"),
+        ("Programs", "Programs", "programs"), ("Documents", "Documents", "documents"),
+        ("Images", "Images", "images"), ("Torrents", "Torrents", "magnet"), ("Other", "Others", "other")]),
+    ("unfinished", "Unfinished", "unfinished", [
+        ("active", "Downloading", "active"), ("paused", "Paused", "paused"),
+        ("failed", "Failed", "error"), ("scheduled", "Scheduled", "clock")]),
+    ("done", "Finished", "finished", []),
 ]
 
 
 def matches(it, key):
     if key == "all":
         return True
+    if key == "unfinished":
+        return it.status != "done"
     if key == "active":
         return it.status in ("downloading", "queued", "pausing")
     if key == "done":
         return it.status == "done"
     if key == "paused":
-        return it.status in ("paused", "error")
+        return it.status == "paused"
+    if key == "failed":
+        return it.status == "error"
+    if key == "scheduled":
+        return getattr(it, "scheduled", False) and it.status != "done"
     return item_category(it) == key
+
+
+def added_text(ts):
+    import datetime as _dt
+    d = _dt.datetime.fromtimestamp(ts or 0).date()
+    today = _dt.date.today()
+    if d == today:
+        return "Today"
+    if d == today - _dt.timedelta(days=1):
+        return "Yesterday"
+    return d.strftime("%Y/%m/%d")
+
+
+STATUS_ORDER = {"downloading": 0, "pausing": 1, "queued": 2, "paused": 3, "error": 4, "done": 5}
+
+
+def sort_value(it, key):
+    if key == "name":
+        return (it.name or it.url).lower()
+    if key == "size":
+        return it.total or 0
+    if key == "status":
+        return (STATUS_ORDER.get(it.status, 9), -(it.done / it.total if it.total else 0))
+    if key == "eta":
+        return (it.total - it.done) / it.speed if it.status == "downloading" and it.speed and it.total else 1e12
+    return it.added or 0
 
 
 class MainWindow(QMainWindow):
@@ -1353,6 +1632,9 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self._tray_hint_shown = False
         self._filter = "all"
+        self._search = ""
+        self._sort = ("added", True)        # newest first
+        self._checked = set()
         self._notified = {i.id for i in mgr.items if i.status == "done"}
 
         self._ignore_clip = False
@@ -1362,6 +1644,7 @@ class MainWindow(QMainWindow):
         self._update_progress = None
         self._update_stop = threading.Event()
         self._theme_poll = 0
+        self._disk_poll = 0
         self.update_status = ""
         self.scheduler = features.Scheduler(mgr)
         self.when_done = features.WhenDone(mgr)
@@ -1370,15 +1653,27 @@ class MainWindow(QMainWindow):
         app_icon = QIcon(app_icon_path())
         self.setWindowIcon(app_icon)
         scr = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
-        self.resize(min(1240, scr.width() - 40) if scr else 1240, min(680, scr.height() - 60) if scr else 680)
-        self.setMinimumSize(900, 480)
+        self.resize(min(1360, scr.width() - 40) if scr else 1360, min(780, scr.height() - 60) if scr else 780)
+        self.setMinimumSize(980, 560)
 
         root = QWidget()
-        h = QHBoxLayout(root)
+        root.setObjectName("Root")
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(self._build_header())
+        body = QWidget()
+        body.setObjectName("Body")
+        h = QHBoxLayout(body)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
         h.addWidget(self._build_sidebar())
+        line = QFrame()
+        line.setObjectName("VLine")
+        line.setFixedWidth(1)
+        h.addWidget(line)
         right = QWidget()
+        right.setObjectName("Right")
         v = QVBoxLayout(right)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
@@ -1387,14 +1682,17 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_table())
         self.stack.addWidget(self._build_empty())
-        v.addWidget(self.stack)
+        v.addWidget(self.stack, 1)
+        v.addWidget(self._build_bottom())
         h.addWidget(right, 1)
+        outer.addWidget(body, 1)
         self.setCentralWidget(root)
         self.setAcceptDrops(True)
 
         # keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.add_dialog)
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.open_torrent_files)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=lambda: self.search.setFocus())
         QShortcut(QKeySequence.Paste, self, activated=self._paste_shortcut)
         QShortcut(QKeySequence.Delete, self, activated=self.remove_selected)
         QShortcut(QKeySequence(Qt.Key_Space), self, activated=self.toggle_selected)
@@ -1420,6 +1718,7 @@ class MainWindow(QMainWindow):
         self._apply_capture_ui()
         self._apply_limit_ui()
         self._apply_when_ui()
+        self._update_disk()
         self.refresh()
         self._update_buttons()
 
@@ -1447,31 +1746,31 @@ class MainWindow(QMainWindow):
 
     # ---- themes ----
     def apply_theme(self, key=None):
-        key = key or self.mgr.settings.get("theme", "midnight")
+        key = key or self.mgr.settings.get("theme", "aurora")
         theme.apply(QApplication.instance(), asset_url, key)
         app_ic = QIcon(app_icon_path())
         self.setWindowIcon(app_ic)
         QApplication.instance().setWindowIcon(app_ic)
-        self._logo.setPixmap(QPixmap(app_icon_path()).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        for key_, (ic, prim) in self._btn_icons.items():
-            b = self.buttons[key_]
-            b.setIcon(icon(ic, T("on_acc") if prim else T("icon"), 18, 2.1 if prim else 1.9))
-        self.buttons["open_torrent"].setIcon(icon("magnet", T("teal"), 18))
-        for li in self._filter_items.values():
-            k = li.data(Qt.UserRole)
-            color = CATEGORY_ICON[k][1] if k in CATEGORY_ICON else T("side_text")
-            li.setIcon(icon(li.data(Qt.UserRole + 2), color, 18))
-        self._empty_art.setPixmap(pixmap("active", T("faint"), 72))
-        self._side_settings.setIcon(icon("settings", T("side_text"), 18))
-        b1, b2 = self._empty_btns
-        b1.setIcon(icon("add", T("on_acc"), 18, 2.1))
-        if b2:
-            b2.setIcon(icon("magnet", T("teal"), 18))
+        self._logo.setPixmap(QPixmap(app_icon_path()).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        for key_, ic in self._btn_icons.items():
+            self.buttons[key_].setIcon(icon(ic, T("icon"), 24, 1.7))
+        self._nav_icons()
+        self._disk_icon.setPixmap(pixmap("disk", T("icon"), 20))
+        self._disk_more.setIcon(icon("dots", T("icon"), 18))
+        self._pill_icon.setPixmap(pixmap("link_add", T("muted"), 22))
+        self._go.setIcon(icon("cloud_dl", T("on_acc"), 24, 2.1))
+        self.search.removeAction(self._search_action)
+        self._search_action = self.search.addAction(icon("search", T("muted"), 18), QLineEdit.LeadingPosition)
+        self._speed_icon.setPixmap(pixmap("gauge", T("acc"), 22))
+        self._down_icon.setPixmap(pixmap("active", T("muted"), 18))
+        self._up_icon.setPixmap(pixmap("upload", T("muted"), 18))
+        self._empty_art.setPixmap(pixmap("cloud_dl", T("faint"), 72))
         self._banner_icon.setPixmap(pixmap("update", T("info_fg"), 20))
         self._build_tray_menu()
         self._apply_capture_ui()
         self._apply_limit_ui()
         self._apply_when_ui()
+        self.gauge.update()
         self.table.viewport().update()
         self.refresh()
 
@@ -1504,8 +1803,8 @@ class MainWindow(QMainWindow):
         b = self.buttons["when_done"]
         short = {"none": "When done", "sleep": "Sleep", "shutdown": "Shut down", "quit": "Close"}
         b.setText(short.get(key, "When done"))
-        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if key != "none" else Qt.ToolButtonIconOnly)
-        b.setIcon(icon("power", T("info_fg") if key != "none" else T("icon"), 18))
+        b.setIcon(icon("power", T("info_fg") if key != "none" else T("icon"), 24, 1.7))
+        self._btn_icons.pop("when_done", None)
         b.setProperty("on", key != "none")
         b.style().unpolish(b)
         b.style().polish(b)
@@ -1696,14 +1995,14 @@ class MainWindow(QMainWindow):
         on = s.get("limit_on", False)
         b = self.buttons["speed"]
         down, t_down, t_up = self.mgr.effective_limits()
-        b.setText(fmt_rate(down) if on and down else ("Limited" if on else "Unlimited"))
-        b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if on else Qt.ToolButtonIconOnly)
-        b.setIcon(icon("gauge", T("info_fg") if on else T("icon"), 18))
+        b.setText(fmt_rate(down) if on and down else ("Limited" if on else "Speed"))
+        b.setIcon(icon("gauge", T("info_fg") if on else T("icon"), 24, 1.7))
+        self._btn_icons.pop("speed", None)
         if on:
             tip = (f"Speed limit ON\nDownloads: {fmt_rate(down)}\nTorrents: ↓ {fmt_rate(t_down)}"
-                   f"   ↑ {fmt_rate(t_up)}\nClick to turn off (Ctrl+L) · arrow for options")
+                   f"   ↑ {fmt_rate(t_up)}\nClick for options (Ctrl+L turns it off)")
         else:
-            tip = "No speed limit — click to turn it on (Ctrl+L) · arrow for options"
+            tip = "No speed limit — click for options (Ctrl+L turns it on)"
         b.setToolTip(tip)
         b.setProperty("on", on)
         b.style().unpolish(b)
@@ -1796,10 +2095,9 @@ class MainWindow(QMainWindow):
 
     def _apply_capture_ui(self):
         on = self.mgr.settings.get("capture", True)
-        b = self.buttons["capture"]
-        b.setText("Catching on" if on else "Catching off")
-        b.setToolButtonStyle(Qt.ToolButtonIconOnly if on else Qt.ToolButtonTextBesideIcon)
-        b.setIcon(icon("catch" if on else "catch_off", T("ok") if on else T("warn_text"), 18))
+        b = self.capture_btn
+        b.setText("Browser: catching" if on else "Browser: not catching")
+        b.setIcon(icon("catch" if on else "catch_off", T("ok") if on else T("warn_text"), 16))
         b.setToolTip(("Catching downloads from the browser — click to turn off" if on else
                       "Not catching — the browser downloads files itself. Click to turn on")
                      + "  (Ctrl+Shift+C)")
@@ -1810,134 +2108,296 @@ class MainWindow(QMainWindow):
         self.tray.setIcon(QIcon(app_icon_path()) if on else QIcon(resource("app_off.png")))
 
     # ---- building ----
-    def _build_sidebar(self):
-        panel = QFrame()
-        panel.setObjectName("SidePanel")
-        panel.setFixedWidth(230)
-        v = QVBoxLayout(panel)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(0)
-
-        brand = QWidget()
-        bh = QHBoxLayout(brand)
-        bh.setContentsMargins(18, 20, 18, 16)
-        bh.setSpacing(10)
+    def _build_header(self):
+        bar = QFrame()
+        bar.setObjectName("Header")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(18, 10, 18, 10)
+        h.setSpacing(10)
         logo = QLabel()
         self._logo = logo
-        logo.setPixmap(QPixmap(app_icon_path()).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        bh.addWidget(logo)
-        names = QVBoxLayout()
-        names.setSpacing(0)
-        names.addWidget(label("EDENLOAD", "BrandName"))
-        names.addWidget(label("Download Manager", "BrandSub"))
-        bh.addLayout(names)
-        bh.addStretch()
-        v.addWidget(brand)
+        logo.setPixmap(QPixmap(app_icon_path()).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        h.addWidget(logo)
+        h.addWidget(label("EDENLOAD", "HeaderBrand"))
+        h.addSpacing(18)
+        mb = QMenuBar()
+        mb.setObjectName("MainMenu")
+        mb.setNativeMenuBar(False)
+        self._menus = {}
+        for name in ("Tasks", "File", "Downloads", "View", "Help"):
+            m = mb.addMenu(name)
+            self._menus[name] = m
+            m.aboutToShow.connect(lambda m=m, n=name: self._fill_main_menu(n, m))
+        h.addWidget(mb)
+        h.addStretch()
+        self.search = QLineEdit()
+        self.search.setObjectName("Search")
+        self.search.setPlaceholderText("Search in the list")
+        self.search.setClearButtonEnabled(True)
+        self._search_action = self.search.addAction(icon("search", T("muted"), 18), QLineEdit.LeadingPosition)
+        self.search.textChanged.connect(self._search_changed)
+        self.search.setFixedWidth(340)
+        h.addWidget(self.search)
+        return bar
 
-        self.filters = QListWidget()
-        self.filters.setObjectName("Filters")
-        self.filters.setIconSize(QSize(18, 18))
-        self.filters.setFocusPolicy(Qt.NoFocus)
+    def _fill_main_menu(self, name, m):
+        m.clear()
+        c = T("icon")
+        sel = self._selected()
+        if name == "Tasks":
+            m.addAction(icon("link_add", c, 16), "Add URL…\tCtrl+N", self.add_dialog)
+            m.addAction(icon("magnet", T("teal"), 16), "Open torrent file…\tCtrl+O", self.open_torrent_files)
+            m.addSeparator()
+            m.addAction(icon("resume_all", c, 16), "Resume all", self.mgr.resume_all)
+            m.addAction(icon("stop_all", c, 16), "Stop all", self.mgr.pause_all)
+            m.addSeparator()
+            m.addAction("Quit EDENLOAD", self.quit_app)
+        elif name == "File":
+            for text, ic, slot, ok in (
+                    ("Open file", "open", self.open_selected, any(i.status == "done" for i in sel)),
+                    ("Show in folder", "folder", self.folder_selected, True),
+                    ("Copy link", "link", self.copy_link, bool(sel))):
+                a = m.addAction(icon(ic, c, 16), text, slot)
+                a.setEnabled(ok)
+            m.addSeparator()
+            a = m.addAction(icon("trash", T("danger_icon"), 16), "Delete…\tDel", self.remove_selected)
+            a.setEnabled(bool(sel))
+        elif name == "Downloads":
+            m.addAction(icon("gauge", c, 16), "Speed limits…", self.speed_dialog)
+            lim = m.addAction("Limit speed\tCtrl+L", self.toggle_limit)
+            lim.setCheckable(True)
+            lim.setChecked(self.mgr.settings.get("limit_on", False))
+            when = m.addMenu(icon("power", c, 16), "When downloads finish")
+            self._fill_when_menu(when)
+            m.addAction(icon("calendar", c, 16), "Scheduler…", lambda: self.settings_dialog("Schedule"))
+            m.addSeparator()
+            cap = m.addAction("Catch browser downloads\tCtrl+Shift+C", self.toggle_capture)
+            cap.setCheckable(True)
+            cap.setChecked(self.mgr.settings.get("capture", True))
+            m.addAction(icon("broom", c, 16), "Disk Cleaner…", self.disk_cleaner)
+        elif name == "View":
+            tm = m.addMenu(icon("palette", c, 16), "Theme")
+            grp = QActionGroup(tm)
+            cur = self.mgr.settings.get("theme", "aurora")
+            for key, text in theme.CHOICES:
+                a = tm.addAction(theme_swatch(key), text)
+                a.setCheckable(True)
+                a.setChecked(key == cur)
+                grp.addAction(a)
+                a.triggered.connect(lambda _=False, k=key: self._set_theme(k))
+            m.addSeparator()
+            m.addAction(icon("gear", c, 16), "Options…", self.settings_dialog)
+        elif name == "Help":
+            m.addAction(icon("link", c, 16), "Connect browser…", open_browser_guide)
+            m.addAction(icon("update", c, 16), "Check for updates", lambda: self.check_updates(manual=True))
+            m.addSeparator()
+            m.addAction(f"About EDENLOAD {features.VERSION}", lambda: QMessageBox.about(
+                self, APP_NAME, f"<b>EDENLOAD {features.VERSION}</b><br>Download manager for files, videos "
+                                "and torrents."))
+
+    def _set_theme(self, key):
+        self.mgr.settings["theme"] = key
+        self.mgr.save()
+        self.apply_theme(key)
+
+    def _build_sidebar(self):
+        col = QWidget()
+        col.setObjectName("Body")
+        col.setFixedWidth(272)
+        v = QVBoxLayout(col)
+        v.setContentsMargins(16, 16, 16, 16)
+        v.setSpacing(14)
+
+        card = QFrame()
+        card.setObjectName("Card")
+        cv = QVBoxLayout(card)
+        cv.setContentsMargins(10, 10, 10, 10)
+        nav = QTreeWidget()
+        nav.setObjectName("Nav")
+        nav.setColumnCount(2)
+        nav.setHeaderHidden(True)
+        nav.setRootIsDecorated(False)
+        nav.setIndentation(26)
+        nav.setIconSize(QSize(20, 20))
+        nav.setFocusPolicy(Qt.NoFocus)
+        nav.setExpandsOnDoubleClick(False)
+        nav.header().setStretchLastSection(False)
+        nav.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        nav.header().setSectionResizeMode(1, QHeaderView.Fixed)
+        nav.setColumnWidth(1, 40)
         self._filter_items = {}
-        for f in FILTERS:
-            if f is None:
-                sep = QListWidgetItem("CATEGORIES")
-                sep.setFlags(Qt.NoItemFlags)
-                self.filters.addItem(sep)
-                continue
-            key, text, ic = f
-            color = CATEGORY_ICON[key][1] if key in CATEGORY_ICON else T("side_text")
-            it = QListWidgetItem(icon(ic, color, 18), text)
-            it.setData(Qt.UserRole + 2, ic)
-            it.setData(Qt.UserRole, key)
-            it.setData(Qt.UserRole + 1, text)
-            self.filters.addItem(it)
-            self._filter_items[key] = it
-        self.filters.setCurrentItem(self._filter_items["all"])
-        self.filters.currentItemChanged.connect(self._filter_changed)
-        v.addWidget(self.filters, 1)
+        for key, text, ic, kids in NAV:
+            top = QTreeWidgetItem([text, ""])
+            top.setData(0, Qt.UserRole, key)
+            top.setData(0, Qt.UserRole + 1, text)
+            top.setData(0, Qt.UserRole + 2, ic)
+            f = top.font(0)
+            f.setPointSizeF(f.pointSizeF() + 0.6)
+            f.setWeight(QFont.DemiBold)
+            top.setFont(0, f)
+            nav.addTopLevelItem(top)
+            self._filter_items[key] = top
+            for k, t, i in kids:
+                ch = QTreeWidgetItem([t, ""])
+                ch.setData(0, Qt.UserRole, k)
+                ch.setData(0, Qt.UserRole + 1, t)
+                ch.setData(0, Qt.UserRole + 2, i)
+                ch.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
+                top.addChild(ch)
+                self._filter_items[k] = ch
+        nav.topLevelItem(0).setExpanded(True)
+        nav.itemClicked.connect(self._nav_clicked)
+        nav.currentItemChanged.connect(self._filter_changed)
+        nav.itemExpanded.connect(lambda *_: self._nav_icons())
+        nav.itemCollapsed.connect(lambda *_: self._nav_icons())
+        nav.setCurrentItem(self._filter_items["all"])
+        self.nav = nav
+        self._nav_icons()
+        cv.addWidget(nav)
+        v.addWidget(card, 1)
 
-        sb = QToolButton()
-        sb.setObjectName("SideBtn")
-        sb.setText("Settings")
-        sb.setIcon(icon("settings", T("side_text"), 18))
-        sb.setIconSize(QSize(18, 18))
-        sb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        sb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        sb.setCursor(Qt.PointingHandCursor)
-        sb.clicked.connect(lambda: self.settings_dialog())
-        self._side_settings = sb
-        v.addWidget(sb)
-        self.footer = label("", "SideFooter")
-        v.addWidget(self.footer)
-        return panel
+        disk = QFrame()
+        disk.setObjectName("Card")
+        dv = QVBoxLayout(disk)
+        dv.setContentsMargins(16, 14, 16, 16)
+        dv.setSpacing(4)
+        top = QHBoxLayout()
+        self._disk_icon = QLabel()
+        self._disk_icon.setPixmap(pixmap("disk", T("icon"), 20))
+        top.addWidget(self._disk_icon)
+        top.addWidget(label("Disk Space", "CardTitle"))
+        top.addStretch()
+        more = QToolButton()
+        more.setObjectName("Flat")
+        more.setIcon(icon("dots", T("icon"), 18))
+        more.setPopupMode(QToolButton.InstantPopup)
+        dm = QMenu(more)
+        dm.addAction("Open download folder", lambda: (os.makedirs(self.mgr.settings["save_dir"], exist_ok=True),
+                                                       open_path(self.mgr.settings["save_dir"])))
+        dm.addAction("Change download folder…", lambda: self.settings_dialog("Downloads"))
+        more.setMenu(dm)
+        self._disk_more = more
+        top.addWidget(more)
+        dv.addLayout(top)
+        self.gauge = DiskGauge()
+        dv.addWidget(self.gauge)
+        self.disk_pct = label("", "GaugeText")
+        self.disk_pct.setAlignment(Qt.AlignCenter)
+        dv.addWidget(self.disk_pct)
+        self.disk_path = label("", "Muted")
+        self.disk_path.setAlignment(Qt.AlignCenter)
+        dv.addWidget(self.disk_path)
+        dv.addSpacing(10)
+        clean = QPushButton("Disk Cleaner")
+        clean.setObjectName("Gradient")
+        clean.setCursor(Qt.PointingHandCursor)
+        clean.setToolTip("Delete leftovers of downloads that were cancelled or removed")
+        clean.clicked.connect(self.disk_cleaner)
+        dv.addWidget(clean)
+        v.addWidget(disk)
+        return col
+
+    def _nav_icons(self):
+        for key, it in self._filter_items.items():
+            ic = it.data(0, Qt.UserRole + 2)
+            top = it.parent() is None
+            color = T("strong") if top else T("side_text")
+            it.setIcon(0, icon(ic, color, 20 if top else 18))
+            if top and it.childCount():
+                it.setIcon(1, icon("chev_up" if it.isExpanded() else "chev_down", T("muted"), 16))
+
+    def _nav_clicked(self, item, col):
+        if item.parent() is None and item.childCount() and col == 1:
+            item.setExpanded(not item.isExpanded())
 
     def _build_toolbar(self):
         tb = QToolBar()
-        tb.setObjectName("Top")
+        tb.setObjectName("Tools")
         tb.setMovable(False)
-        tb.setIconSize(QSize(18, 18))
+        tb.setIconSize(QSize(24, 24))
         self.buttons = {}
         self._btn_icons = {}
 
-        def btn(key, text, ic, slot, tip, prim=False, icon_only=False):
+        pill = QFrame()
+        pill.setObjectName("AddPill")
+        pill.setFixedWidth(330)
+        ph = QHBoxLayout(pill)
+        ph.setContentsMargins(14, 6, 6, 6)
+        ph.setSpacing(8)
+        self._pill_icon = QLabel()
+        self._pill_icon.setPixmap(pixmap("link_add", T("muted"), 22))
+        ph.addWidget(self._pill_icon)
+        self.url_box = QLineEdit()
+        self.url_box.setPlaceholderText("Add Url")
+        self.url_box.returnPressed.connect(self._add_from_box)
+        ph.addWidget(self.url_box, 1)
+        go = QToolButton()
+        go.setObjectName("Go")
+        go.setFixedSize(46, 40)
+        go.setIcon(icon("cloud_dl", "#ffffff", 24, 2.1))
+        go.setIconSize(QSize(24, 24))
+        go.setCursor(Qt.PointingHandCursor)
+        go.setToolTip("Download this link (Enter)")
+        go.clicked.connect(self._add_from_box)
+        self._go = go
+        ph.addWidget(go)
+        tb.addWidget(pill)
+
+        def sep():
+            f = QFrame()
+            f.setObjectName("VLine")
+            f.setFixedSize(1, 40)
+            w = QWidget()
+            l = QHBoxLayout(w)
+            l.setContentsMargins(10, 0, 10, 0)
+            l.addWidget(f)
+            tb.addWidget(w)
+
+        def btn(key, text, ic, slot, tip):
             b = QToolButton()
             b.setText(text)
-            b.setIcon(icon(ic, T("on_acc") if prim else T("icon"), 18, 2.1 if prim else 1.9))
-            self._btn_icons[key] = (ic, prim)
-            b.setToolButtonStyle(Qt.ToolButtonIconOnly if icon_only else Qt.ToolButtonTextBesideIcon)
+            b.setIcon(icon(ic, T("icon"), 24, 1.7))
+            self._btn_icons[key] = ic
+            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             b.setToolTip(tip)
             b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda checked=False, s=slot: s())
-            if prim:
-                b.setObjectName("Primary")
+            if slot:
+                b.clicked.connect(lambda checked=False, s=slot: s())
             tb.addWidget(b)
             self.buttons[key] = b
             return b
 
-        def sep():
-            f = QFrame()
-            f.setObjectName("Sep")
-            f.setFixedSize(1, 22)
-            w = QWidget()
-            l = QHBoxLayout(w)
-            l.setContentsMargins(8, 0, 8, 0)
-            l.addWidget(f)
-            tb.addWidget(w)
-
-        btn("add", "Add URL", "add", self.add_dialog, "Add a new download (Ctrl+N)", prim=True)
-        ot = btn("open_torrent", "Open torrent", "magnet", self.open_torrent_files,
-                 "Open .torrent files from your computer (Ctrl+O)")
-        ot.setIcon(icon("magnet", T("teal"), 18))
+        sep()
         btn("resume", "Resume", "play", self.resume_selected, "Resume selected (Space)")
-        btn("pause", "Pause", "pause", self.pause_selected, "Pause selected (Space)")
-        btn("delete", "Delete", "trash", self.remove_selected, "Remove selected (Del)", icon_only=True)
+        btn("pause", "Stop", "stop", self.pause_selected, "Stop selected (Space)")
+        btn("pause_all", "Stop All", "stop_all", self.mgr.pause_all, "Stop all downloads")
         sep()
-        btn("resume_all", "Resume all", "resume_all", self.mgr.resume_all, "Resume all downloads", icon_only=True)
-        btn("pause_all", "Pause all", "pause_all", self.mgr.pause_all, "Pause all downloads", icon_only=True)
-        sep()
-        btn("open", "Open", "open", self.open_selected, "Open the downloaded file", icon_only=True)
-        btn("folder", "Show in folder", "folder", self.folder_selected, "Show in folder", icon_only=True)
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        tb.addWidget(spacer)
-        wd = btn("when_done", "When done", "power", lambda: wd.showMenu(),
+        btn("delete", "Delete", "trash", self.remove_selected, "Delete selected (Del)")
+        btn("open_torrent", "Torrent", "magnet", self.open_torrent_files, "Open .torrent files (Ctrl+O)")
+        sp = btn("speed", "Speed", "gauge", None, "Speed limits")
+        sp.setPopupMode(QToolButton.InstantPopup)
+        self.speed_menu = QMenu(sp)
+        self.speed_menu.aboutToShow.connect(lambda: self._fill_speed_menu(self.speed_menu))
+        sp.setMenu(self.speed_menu)
+        wd = btn("when_done", "When done", "power", None,
                  "Sleep, shut down or close EDENLOAD when all downloads finish")
-        wd.setObjectName("WhenDone")
         wd.setPopupMode(QToolButton.InstantPopup)
         self.when_menu = QMenu(wd)
         self.when_menu.aboutToShow.connect(lambda: self._fill_when_menu(self.when_menu))
         wd.setMenu(self.when_menu)
-        sp = btn("speed", "Speed", "gauge", self.toggle_limit, "")
-        sp.setObjectName("Speed")
-        sp.setPopupMode(QToolButton.MenuButtonPopup)
-        self.speed_menu = QMenu(sp)
-        self.speed_menu.aboutToShow.connect(lambda: self._fill_speed_menu(self.speed_menu))
-        sp.setMenu(self.speed_menu)
-        cap = btn("capture", "Catching on", "catch", self.toggle_capture,
-                  "Catch downloads from the browser — click to turn off (Ctrl+Shift+C)", icon_only=True)
-        cap.setObjectName("Capture")
+        btn("scheduler", "Scheduler", "calendar", lambda: self.settings_dialog("Schedule"), "Scheduler")
+        btn("options", "Options", "gear", self.settings_dialog, "Options")
+        btn("share", "Share", "share", self.copy_link, "Copy the download link")
         return tb
+
+    def _add_from_box(self):
+        text = self.url_box.text().strip()
+        self.url_box.clear()
+        if not text:
+            self.add_dialog()
+            return
+        payloads = args_to_payloads([text]) or [{"url": text}]
+        self.add_dialog(payloads[0])
 
     def _build_table(self):
         t = QTableWidget(0, len(COLS))
@@ -1948,33 +2408,154 @@ class MainWindow(QMainWindow):
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         t.setShowGrid(False)
         t.setWordWrap(False)
-        t.setAlternatingRowColors(True)
-        t.setIconSize(QSize(20, 20))
         t.setFocusPolicy(Qt.NoFocus)
+        t.setMouseTracking(True)
         t.verticalHeader().setVisible(False)
-        t.verticalHeader().setDefaultSectionSize(46)
+        t.verticalHeader().setDefaultSectionSize(64)
+        t.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         hh = t.horizontalHeader()
         hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hh.setHighlightSections(False)
-        hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c, w in ((1, 90), (2, 200), (3, 150), (4, 80), (5, 175)):
+        hh.setSectionsClickable(True)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        for c, w in ((0, 52), (2, 110), (3, 230), (4, 110), (5, 120)):
             hh.setSectionResizeMode(c, QHeaderView.Fixed)
             t.setColumnWidth(c, w)
-        t.setItemDelegateForColumn(2, ProgressDelegate(t))
-        t.setItemDelegateForColumn(5, StatusDelegate(t))
+        hh.sectionClicked.connect(self._sort_clicked)
+        t.setItemDelegateForColumn(0, CheckDelegate(t, first=True))
+        t.setItemDelegateForColumn(1, NameDelegate(t))
+        t.setItemDelegateForColumn(2, RowDelegate(t))
+        t.setItemDelegateForColumn(3, StatusDelegate(t))
+        t.setItemDelegateForColumn(4, RowDelegate(t))
+        t.setItemDelegateForColumn(5, RowDelegate(t, last=True))
         t.doubleClicked.connect(lambda *_: self._double_click())
+        t.clicked.connect(self._cell_clicked)
         t.setContextMenuPolicy(Qt.CustomContextMenu)
         t.customContextMenuRequested.connect(self._row_menu)
         t.itemSelectionChanged.connect(self._update_buttons)
+        t.viewport().installEventFilter(self)
         self.table = t
+        self._update_header_labels()
         return t
+
+    def eventFilter(self, obj, ev):
+        if getattr(self, "table", None) is not None and obj is self.table.viewport():
+            if ev.type() == QEvent.MouseMove:
+                row = self.table.rowAt(int(ev.position().y()))
+                if self.table.property("hoverRow") != row:
+                    self.table.setProperty("hoverRow", row)
+                    self.table.viewport().update()
+            elif ev.type() == QEvent.Leave:
+                self.table.setProperty("hoverRow", -1)
+                self.table.viewport().update()
+        return super().eventFilter(obj, ev)
+
+    def _sort_clicked(self, col):
+        key = SORT_KEYS.get(col)
+        if not key:
+            return
+        cur, desc = self._sort
+        self._sort = (key, not desc if cur == key else key in ("size", "added"))
+        self._update_header_labels()
+        self._row_ids = []
+        self.refresh()
+
+    def _update_header_labels(self):
+        key, desc = self._sort
+        for col, name in enumerate(COLS):
+            k = SORT_KEYS.get(col)
+            mark = (" ↓" if desc else " ↑") if k == key else (" ⇅" if k else "")
+            self.table.horizontalHeaderItem(col).setText(name + mark) if self.table.horizontalHeaderItem(col) \
+                else self.table.setHorizontalHeaderItem(col, QTableWidgetItem(name + mark))
+
+    def _cell_clicked(self, idx):
+        if idx.column() != 0 or idx.row() >= len(self._row_ids):
+            return
+        i = self._row_ids[idx.row()]
+        self._checked.symmetric_difference_update({i})
+        self.refresh()
+
+    def _build_bottom(self):
+        bar = QFrame()
+        bar.setObjectName("Bottom")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(22, 10, 22, 10)
+        h.setSpacing(14)
+        self.select_all = QCheckBox("Select All")
+        self.select_all.setTristate(False)
+        self.select_all.clicked.connect(self._select_all_clicked)
+        h.addWidget(self.select_all)
+        self.sel_info = label("", "Muted")
+        h.addWidget(self.sel_info)
+        h.addStretch()
+        cap = QToolButton()
+        cap.setObjectName("CatchPill")
+        cap.setCursor(Qt.PointingHandCursor)
+        cap.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        cap.clicked.connect(self.toggle_capture)
+        self.capture_btn = cap
+        h.addWidget(cap)
+        h.addSpacing(10)
+        self._speed_icon = QLabel()
+        self._speed_icon.setPixmap(pixmap("gauge", T("acc"), 22))
+        h.addWidget(self._speed_icon)
+        h.addWidget(QLabel("Speed :"))
+        self._down_icon = QLabel()
+        self._down_icon.setPixmap(pixmap("active", T("muted"), 18))
+        h.addWidget(self._down_icon)
+        self.down_val = label("0 B/s", "SpeedVal")
+        h.addWidget(self.down_val)
+        h.addSpacing(8)
+        self._up_icon = QLabel()
+        self._up_icon.setPixmap(pixmap("upload", T("muted"), 18))
+        h.addWidget(self._up_icon)
+        self.up_val = label("0 B/s", "SpeedVal")
+        h.addWidget(self.up_val)
+        return bar
+
+    def _select_all_clicked(self, *_):
+        vis = [i.id for i in self._visible_items()]
+        if vis and all(i in self._checked for i in vis):
+            self._checked.difference_update(vis)
+        else:
+            self._checked.update(vis)
+        self.refresh()
+
+    def _update_disk(self):
+        folder = self.mgr.settings["save_dir"]
+        p = folder
+        while p and not os.path.exists(p):
+            parent = os.path.dirname(p)
+            if parent == p:
+                break
+            p = parent
+        try:
+            import shutil as _sh
+            u = _sh.disk_usage(p)
+            frac = u.used / u.total if u.total else 0
+            self.gauge.set_value(frac)
+            self.disk_pct.setText(f"{frac * 100:.0f}%")
+            self.disk_path.setText(f"{folder}\n{human_size(u.free)} free of {human_size(u.total)}")
+            self.disk_path.setToolTip(folder)
+        except OSError:
+            self.disk_pct.setText("—")
+            self.disk_path.setText(folder)
+
+    def disk_cleaner(self):
+        self._dialog_open = True
+        try:
+            CleanerDialog(self, self.mgr).exec()
+        finally:
+            self._dialog_open = False
+        self._update_disk()
+        self.refresh()
 
     def _build_empty(self):
         w = QWidget()
         v = QVBoxLayout(w)
         v.addStretch()
         art = QLabel()
-        art.setPixmap(pixmap("active", T("faint"), 72))
+        art.setPixmap(pixmap("cloud_dl", T("faint"), 72))
         self._empty_art = art
         art.setAlignment(Qt.AlignCenter)
         v.addWidget(art)
@@ -1982,26 +2563,10 @@ class MainWindow(QMainWindow):
         self.empty_title = label("No downloads yet", "EmptyTitle")
         self.empty_title.setAlignment(Qt.AlignCenter)
         v.addWidget(self.empty_title)
-        self.empty_text = label("Download anything in Chrome or Edge and it lands here.\n"
-                                "Or press Ctrl+V to paste a link, or drop a .torrent file here.", "Muted")
+        self.empty_text = label("Click a download link in Chrome or Edge and it lands here.\n"
+                                "Or paste a link in “Add Url” above, or drop a .torrent file here.", "Muted")
         self.empty_text.setAlignment(Qt.AlignCenter)
         v.addWidget(self.empty_text)
-        v.addSpacing(16)
-        row = QHBoxLayout()
-        row.addStretch()
-        b = primary(QPushButton("  Add URL"))
-        b.setIcon(icon("add", T("on_acc"), 18, 2.1))
-        self._empty_btns = (b, None)
-        b.clicked.connect(lambda: self.add_dialog())
-        row.addWidget(b)
-        b2 = QPushButton("  Open torrent file")
-        b2.setIcon(icon("magnet", T("teal"), 18))
-        self._empty_btns = (b, b2)
-        b2.setCursor(Qt.PointingHandCursor)
-        b2.clicked.connect(lambda: self.open_torrent_files())
-        row.addWidget(b2)
-        row.addStretch()
-        v.addLayout(row)
         v.addStretch()
         return w
 
@@ -2087,14 +2652,24 @@ class MainWindow(QMainWindow):
         self.add_dialog(data)
 
     def _visible_items(self):
-        return [i for i in self.mgr.items if matches(i, self._filter)]
+        q = self._search.lower()
+        items = [i for i in self.mgr.items if matches(i, self._filter)
+                 and (not q or q in (i.name or "").lower() or q in (i.url or "").lower())]
+        key, desc = self._sort
+        items.sort(key=lambda i: sort_value(i, key), reverse=desc)
+        return items
+
+    def _search_changed(self, text):
+        self._search = text.strip()
+        self.refresh()
 
     def refresh(self):
         items = self._visible_items()
         ids = [i.id for i in items]
         t = self.table
+        self._checked &= {i.id for i in self.mgr.items}
         if ids != self._row_ids:
-            selected = set(self._selected_ids())
+            selected = set(self._selected_row_ids())
             t.setRowCount(len(items))
             for r in range(len(items)):
                 for c in range(len(COLS)):
@@ -2108,58 +2683,41 @@ class MainWindow(QMainWindow):
         for r, it in enumerate(items):
             done, total = it.done, it.total
             cat = item_category(it)
-            ic_name, ic_color = CATEGORY_ICON.get(cat, CATEGORY_ICON["Other"])
-            name = t.item(r, 0)
-            name.setText(it.name or it.url)
-            name.setIcon(icon(ic_name, ic_color, 20))
+            ic_name = CATEGORY_ICON.get(cat, CATEGORY_ICON["Other"])[0]
+            t.item(r, 0).setData(Qt.UserRole, it.id in self._checked)
+            sub = TYPE_LABEL.get(cat, "File")
+            if getattr(it, "scheduled", False) and it.status != "done":
+                sub += "  ·  scheduled"
+            if it.limit or getattr(it, "limit_up", 0):
+                sub += f"  ·  max {fmt_rate(it.limit)}" if it.limit else "  ·  upload limited"
+            name = t.item(r, 1)
+            name.setData(Qt.UserRole, (it.name or it.url, sub, ic_name))
             name.setToolTip(f"{it.name}\n{it.url}")
-            t.item(r, 1).setText(human_size(total) if total else "—")
-            if total:
-                frac = min(done, total) / total
-                text = f"{100 * frac:.1f}%" if frac < 1 else "100%"
-            elif it.status == "done":
-                frac, text = 1.0, "100%"
-            else:
-                frac, text = 0.0, (human_size(done) if done else "")
-            t.item(r, 2).setData(Qt.UserRole, (frac, it.status, text))
+            t.item(r, 2).setText(human_size(total) if total else "—")
+            frac = min(done, total) / total if total else (1.0 if it.status == "done" else 0.0)
+            pct = f"{100 * frac:.0f}%" if total else (human_size(done) if done else "")
             running = it.status == "downloading"
-            spd = f"{human_size(it.speed)}/s" if running and it.speed else ""
-            if it.kind == "torrent" and it.upload:
-                spd = (spd + "  " if spd else "") + f"↑ {human_size(it.upload)}/s"
-            sp_item = t.item(r, 3)
-            sp_item.setText(spd)
-            lim_up = getattr(it, "limit_up", 0)
-            if it.limit or lim_up:
-                sp_item.setIcon(icon("gauge", T("info_fg"), 14))
-                tip = []
-                if it.limit:
-                    tip.append(f"Limited to {fmt_rate(it.limit)}")
-                if lim_up:
-                    tip.append(f"Upload limited to {fmt_rate(lim_up)}")
-                sp_item.setToolTip("\n".join(tip))
-            else:
-                sp_item.setIcon(QIcon())
-                sp_item.setToolTip("")
-            eta = (total - done) / it.speed if running and it.speed and total else None
-            t.item(r, 4).setText(human_time(eta) if eta is not None else "")
-            st = t.item(r, 5)
-            st.setData(Qt.UserRole, it.status)
-            restart = (it.status == "paused" and it.kind == "file"
-                       and not getattr(it, "resumable", True) and done)
-            extra = "· restarts" if restart else ""
+            right = f"{human_size(it.speed)}/s" if running and it.speed else ""
+            extra = ""
             if it.kind == "torrent":
                 if it.status == "downloading" and it.awaiting_files:
-                    extra = "· choose files"
+                    extra = "choose files"
                 elif it.status == "downloading":
-                    extra = {"metadata": "· getting info", "checking": "· checking"}.get(
-                        it.phase, f"· {it.peers} peers")
+                    extra = {"metadata": "getting info", "checking": "checking"}.get(it.phase, f"{it.peers} peers")
+                    if it.upload:
+                        extra += f"  ·  ↑ {human_size(it.upload)}/s"
                 elif it.status == "done" and it.seeding:
                     extra = "· seeding"
-            if getattr(it, "scheduled", False) and it.status in ("paused", "queued", "error") and not extra:
-                extra = "· scheduled"
-            st.setData(Qt.UserRole + 1, extra)
-            st.setToolTip(it.error or ("This server doesn't support resume, so it will start over."
-                                       if restart else ""))
+            restart = (it.status == "paused" and it.kind == "file" and not getattr(it, "resumable", True) and done)
+            if restart:
+                pct += "  · restarts"
+            t.item(r, 3).setData(Qt.UserRole, (it.status, frac, pct, right, extra))
+            t.item(r, 3).setToolTip(it.error or ("This server doesn't support resume, so it will start over."
+                                                 if restart else ""))
+            eta = (total - done) / it.speed if running and it.speed and total else None
+            t.item(r, 4).setText(human_time(eta) if eta is not None else ("0 Sec" if it.status == "done" else "—"))
+            t.item(r, 5).setText(added_text(it.added))
+        t.viewport().update()
 
         # empty state
         if items:
@@ -2168,46 +2726,50 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(1)
             if self.mgr.items:
                 self.empty_title.setText("Nothing here")
-                self.empty_text.setText("No downloads match this view.")
+                self.empty_text.setText("No downloads match this view" + (" or search." if self._search else "."))
             else:
                 self.empty_title.setText("No downloads yet")
-                self.empty_text.setText("Download anything in Chrome or Edge and it lands here.\n"
-                                        "Or press Ctrl+V to paste a link, or drop a .torrent file here.")
+                self.empty_text.setText("Click a download link in Chrome or Edge and it lands here.\n"
+                                        "Or paste a link in “Add Url” above, or drop a .torrent file here.")
 
-        # sidebar counts + footer
+        # sidebar counts
         for key, li in self._filter_items.items():
             n = sum(1 for i in self.mgr.items if matches(i, key))
-            base = li.data(Qt.UserRole + 1)
-            li.setText(f"{base}    {n}" if n else base)
+            if li.parent() is not None or not li.childCount():
+                li.setText(1, str(n) if n else "")
+        # bottom bar
+        vis_ids = set(ids)
+        n_checked = len(self._checked & vis_ids)
+        self.select_all.setChecked(bool(vis_ids) and n_checked == len(vis_ids))
+        self.sel_info.setText(f"{n_checked} selected" if n_checked else "")
         active = [i for i in self.mgr.items if i.status == "downloading"]
         speed = sum(i.speed for i in active)
+        up = sum(getattr(i, "upload", 0.0) or 0.0 for i in self.mgr.items)
+        self.down_val.setText(f"{human_size(speed)}/s" if speed else "0 B/s")
+        self.up_val.setText(f"{human_size(up)}/s" if up else "0 B/s")
         if active:
-            self.footer.setText(f"↓  {human_size(speed)}/s   ·   {len(active)} active")
             self.tray.setToolTip(f"{APP_NAME}\n{len(active)} downloading · {human_size(speed)}/s")
         else:
-            self.footer.setText(f"Idle   ·   {len(self.mgr.items)} in list")
             self.tray.setToolTip(APP_NAME)
-        down, t_down, t_up = self.mgr.effective_limits()
-        if self.mgr.settings.get("limit_on"):
-            parts = []
-            if down:
-                parts.append(f"{fmt_rate(down)}")
-            if t_down or t_up:
-                parts.append(f"torrent ↓{fmt_rate(t_down)} ↑{fmt_rate(t_up)}")
-            self.footer.setText(self.footer.text() + "\nSpeed limit: " + (" · ".join(parts) or "on"))
-        if not self.mgr.settings.get("capture", True):
-            self.footer.setText(self.footer.text() + "\nBrowser catching is off")
         self._update_buttons()
 
     def _filter_changed(self, cur, _prev):
-        if cur is not None and cur.data(Qt.UserRole):
-            self._filter = cur.data(Qt.UserRole)
+        if not hasattr(self, "stack"):
+            return
+        if cur is not None and cur.data(0, Qt.UserRole):
+            self._filter = cur.data(0, Qt.UserRole)
+            self._row_ids = []
             self.refresh()
 
     # ---- selection helpers ----
-    def _selected_ids(self):
+    def _selected_row_ids(self):
         rows = sorted({i.row() for i in self.table.selectedIndexes()})
         return [self._row_ids[r] for r in rows if r < len(self._row_ids)]
+
+    def _selected_ids(self):
+        """Ticked rows if any are ticked, otherwise the highlighted rows."""
+        ticked = [i for i in self._row_ids if i in self._checked]
+        return ticked or self._selected_row_ids()
 
     def _selected(self):
         return [it for it in (self.mgr.get(i) for i in self._selected_ids()) if it]
@@ -2218,8 +2780,7 @@ class MainWindow(QMainWindow):
         b["resume"].setEnabled(any(i.status in ("paused", "error", "pausing") for i in sel))
         b["pause"].setEnabled(any(i.status in ("downloading", "queued") for i in sel))
         b["delete"].setEnabled(bool(sel))
-        b["open"].setEnabled(any(i.status == "done" for i in sel))
-        b["resume_all"].setEnabled(any(i.status in ("paused", "error") for i in self.mgr.items))
+        b["share"].setEnabled(bool(sel))
         b["pause_all"].setEnabled(any(i.status in ("downloading", "queued") for i in self.mgr.items))
 
     def _row_menu(self, pos):
@@ -2291,7 +2852,7 @@ class MainWindow(QMainWindow):
     def _select_filter(self, key):
         li = self._filter_items.get(key)
         if li is not None and self._filter not in ("all", key):
-            self.filters.setCurrentItem(li)
+            self.nav.setCurrentItem(li)
 
     def _paste_shortcut(self):
         if clipboard_url():
@@ -2487,7 +3048,7 @@ def shots(out):
     os.environ["APPDATA"] = tempfile.mkdtemp()
     app = QApplication(sys.argv)
     app.setFont(QFont("Segoe UI", 10))
-    theme.apply(app, asset_url, "midnight")
+    theme.apply(app, asset_url, "aurora")
     mgr = Manager()
     mgr.settings.update(schedule_on=True, limit_on=True, limit_down=2048, after_done="shutdown")
     mgr.apply_limits()
@@ -2515,15 +3076,23 @@ def shots(out):
     f("Report Q3 2026.pdf", 14_000_000, 0.44, "paused", scheduled=True)
     f("Archive.zip", 2_400_000_000, 0.12, "paused", limit=512)
     f("Broken link.iso", 700_000_000, 0.05, "error")
+    f("Soundtrack.mp3", 8_700_000, 0.8, "downloading", speed=1.2e6)
+    f("Wallpapers_UltraHD.jpg", 284_000_000, 1.0, "done")
+    import time as _t
+    for k, it in enumerate(mgr.items):
+        it.added = _t.time() - k * 40000
 
     w = MainWindow(mgr, queue.Queue())
     w.timer.stop()
-    w.resize(1240, 660)
+    w.setMinimumSize(1360, 780)
+    w.resize(1360, 780)
     w.show()
     w._update_info = {"version": "1.7", "url": "", "page": "", "notes": "", "size": 0}
     w._banner_text.setText(f"<b>EDENLOAD 1.7</b> is available — you have {features.VERSION}.")
     w.banner.show()
-    w.table.selectRow(0)
+    w.table.selectRow(2)
+    w._checked.update({mgr.items[1].id, mgr.items[3].id})
+    w.table.setProperty("hoverRow", 4)
 
     def save(widget, name):
         for _ in range(3):
@@ -2534,21 +3103,28 @@ def shots(out):
         w.apply_theme(key)
         w.refresh()
         save(w, f"main_{key}")
-    w.setMinimumSize(1240, 680)       # the size it opens at on a normal laptop/desktop screen
-    w.resize(1240, 680)
-    w.apply_theme("midnight")
+    w.apply_theme("aurora")
     w.refresh()
-    save(w, "main_1240")
-    w.setMinimumSize(900, 480)
-    w.resize(900, 600)
-    save(w, "main_900")
-    w.resize(1240, 680)
-    w.apply_theme("midnight")
+    w.banner.hide()
+    save(w, "main_nobanner")
+    w.setMinimumSize(980, 560)
+    w.resize(1100, 640)
+    save(w, "main_small")
+    w.setMinimumSize(1360, 780)
+    w.resize(1360, 780)
+    w._fill_main_menu("Downloads", w._menus["Downloads"])
+    w._menus["Downloads"].popup(w.mapToGlobal(w.rect().topLeft()) + QPoint(160, 40))
+    save(w._menus["Downloads"], "menu_downloads")
+    w._menus["Downloads"].hide()
+    cd = CleanerDialog(w, mgr)
+    cd.show()
+    save(cd, "dialog_cleaner")
+    cd.hide()
     w.refresh()
     w.when_menu.popup(w.buttons["when_done"].mapToGlobal(w.buttons["when_done"].rect().bottomLeft()))
     save(w.when_menu, "menu_when_done")
     w.when_menu.hide()
-    for key in ("midnight", "daylight"):
+    for key in ("aurora", "daylight"):
         w.apply_theme(key)
         dlg = SettingsDialog(w, mgr)
         dlg.theme.blockSignals(True)
@@ -2557,7 +3133,7 @@ def shots(out):
             dlg.tabs.setCurrentIndex(i)
             save(dlg, f"settings_{key}_{i}_{name.lower()}")
         dlg.hide()
-    w.apply_theme("midnight")
+    w.apply_theme("aurora")
     def fake(dlg, res):
         dlg._probe_timer.stop()
         dlg._gen += 1
@@ -2656,7 +3232,7 @@ def main():
             QMessageBox.warning(None, APP_NAME, f"Port {PORT} is already used by another program.")
         return
     mgr = Manager()
-    theme.apply(app, asset_url, mgr.settings.get("theme", "midnight"))
+    theme.apply(app, asset_url, mgr.settings.get("theme", "aurora"))
     mgr.ensure_folders()
     flag = os.path.join(mgr.dir, "startup.flag")      # left by the installer's "Start with Windows" box
     if os.path.isfile(flag):
