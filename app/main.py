@@ -1662,7 +1662,7 @@ class MainWindow(QMainWindow):
         app_icon = QIcon(app_icon_path())
         self.setWindowIcon(app_icon)
         scr = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
-        self.resize(min(1360, scr.width() - 40) if scr else 1360, min(780, scr.height() - 60) if scr else 780)
+        self.resize(min(1360, scr.width() - 40) if scr else 1360, min(840, scr.height() - 60) if scr else 840)
         self.setMinimumSize(980, 560)
 
         root = QWidget()

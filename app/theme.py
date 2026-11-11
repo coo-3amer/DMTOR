@@ -222,7 +222,7 @@ QLabel#StatIcon {{ background:{c['row_sel']}; border-radius:22px; }}
 #NetDown {{ color:{c['acc']}; font-weight:700; font-size:11pt; }}
 #NetUp {{ color:{c['acc2']}; font-weight:700; font-size:11pt; }}
 QLabel#NavBadge {{ background:{c['acc']}; color:{c['on_acc']}; border-radius:11px; font-weight:700; }}
-QToolButton#NavBtn {{ background:transparent; border:1px solid transparent; border-radius:12px; padding:10px 12px;
+QToolButton#NavBtn {{ background:transparent; border:1px solid transparent; border-radius:12px; padding:8px 12px;
     color:{c['text']}; text-align:left; font-size:11pt; }}
 QToolButton#NavBtn:hover {{ background:{c['hover']}; }}
 QToolButton#NavBtn:checked {{ background:{c['row_sel']}; border:1px solid {c['glow_border']}; color:{c['strong']};
