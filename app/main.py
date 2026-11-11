@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from PySide6.QtCore import Qt, QTimer, QSize, QRectF, QPointF, QPoint, QObject, Signal, QEvent
 from PySide6.QtGui import (QIcon, QFont, QPainter, QColor, QKeySequence, QShortcut, QPixmap, QPen, QBrush,
-                           QLinearGradient, QConicalGradient, QPainterPath)
+                           QLinearGradient, QConicalGradient, QPainterPath, QActionGroup)
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QToolBar, QToolButton,
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPushButton, QComboBox,
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QAbstractItemView, QWidget, QFrame, QListWidget, QListWidgetItem,
     QStackedWidget, QSizePolicy, QStyledItemDelegate, QTreeWidget, QTreeWidgetItem,
     QTreeWidgetItemIterator, QTabWidget, QTimeEdit, QProgressBar, QScrollArea, QGridLayout,
-    QStyle, QMenuBar, QActionGroup,
+    QStyle, QMenuBar,
 )
 from PySide6.QtCore import QTime
 
