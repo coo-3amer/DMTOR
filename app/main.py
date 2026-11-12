@@ -3612,6 +3612,11 @@ def main():
     if "--shots" in sys.argv:
         i = sys.argv.index("--shots")
         out = sys.argv[i + 1] if i + 1 < len(sys.argv) else "shots"
+        os.makedirs(out, exist_ok=True)
+        import faulthandler
+        _fault = open(os.path.join(out, "fault.txt"), "w", encoding="utf-8")
+        faulthandler.enable(_fault)
+        sys.stderr = _fault
         try:
             code = shots(out)
         except Exception:
