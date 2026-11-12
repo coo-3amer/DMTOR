@@ -6,6 +6,7 @@ from PySide6.QtSvg import QSvgRenderer
 _FILE = '<path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M14 3.5v5h5"/>'
 
 PATHS = {
+    "add_plus": '<path d="M12 5v14M5 12h14"/>',
     "add": '<circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/>',
     "play": '<path d="M8 5.5v13l10.5-6.5z"/>',
     "pause": '<rect x="6.5" y="5" width="3.5" height="14" rx="1"/><rect x="14" y="5" width="3.5" height="14" rx="1"/>',

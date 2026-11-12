@@ -197,11 +197,40 @@ QToolBar#Tools QToolButton#Go:hover {{ background:{c['grad_h']}; }}
 
 #Bottom {{ background:{c['bg']}; border-top:1px solid {c['line2']}; }}
 #Bottom QLabel {{ color:{c['muted']}; }}
-#SpeedVal {{ color:{c['strong']}; font-size:12pt; font-weight:600; }}
+#SpeedVal {{ color:{c['strong']}; font-weight:600; }}
 QToolButton#CatchPill {{ background:{c['card']}; border:1px solid {c['card_border']}; border-radius:12px;
     padding:5px 12px; color:{c['muted']}; }}
 QToolButton#CatchPill:hover {{ color:{c['strong']}; }}
 QToolButton#CatchPill[off="true"] {{ background:{c['warn_bg']}; color:{c['warn_fg']}; border-color:{c['warn_bg']}; }}
+
+/* ---------- simple layout ---------- */
+QFrame#Rail {{ background:{c['side']}; border-right:1px solid {c['line2']}; }}
+QToolButton#RailBtn {{ background:transparent; border:none; border-radius:12px; }}
+QToolButton#RailBtn:hover {{ background:{c['hover']}; }}
+QToolButton#RailBtn:checked {{ background:{c['row_sel']}; }}
+QToolButton#RailBtn[on="true"] {{ background:{c['info_bg']}; }}
+QToolButton#RailBtn::menu-indicator {{ image:none; width:0; }}
+QToolButton#RailAdd {{ background:{c['acc']}; border:none; border-radius:14px; }}
+QToolButton#RailAdd:hover {{ background:{c['acc_hover']}; }}
+QLabel#RailBadge {{ background:{c['acc']}; color:{c['on_acc']}; border-radius:8px; font-size:7.5pt; font-weight:700; padding:0 3px; }}
+QLabel#RailBadge[kind="danger"] {{ background:{c['danger_icon']}; color:#ffffff; }}
+QToolButton#Chip {{ background:transparent; border:1px solid {c['card_border']}; border-radius:14px; padding:5px 12px;
+    color:{c['muted']}; }}
+QToolButton#Chip:hover {{ color:{c['strong']}; background:{c['hover']}; }}
+QToolButton#Chip:checked {{ background:{c['row_sel']}; border-color:{c['glow_border']}; color:{c['strong']}; }}
+QPushButton#Soft, QPushButton#SoftDanger {{ background:{c['btn']}; border:1px solid {c['btn_border']}; border-radius:10px;
+    padding:7px 13px; color:{c['text']}; }}
+QPushButton#Soft:hover {{ background:{c['btn_hover']}; }}
+QPushButton#SoftDanger {{ color:{c['danger_fg']}; }}
+QPushButton#SoftDanger:hover {{ background:{c['danger_bg']}; border-color:{c['danger_border']}; }}
+QPushButton#Soft:disabled, QPushButton#SoftDanger:disabled {{ color:{c['faint']}; background:transparent; border-color:{c['line2']}; }}
+QFrame#SelBar {{ background:{c['card_hi']}; border:1px solid {c['glow_border']}; border-radius:14px; }}
+#SelText {{ color:{c['strong']}; font-weight:600; }}
+QToolButton#SelBtn, QToolButton#SelBtnDanger {{ background:transparent; border:none; border-radius:9px; padding:6px 10px; color:{c['text']}; }}
+QToolButton#SelBtn:hover {{ background:{c['hover']}; }}
+QToolButton#SelBtn:disabled {{ color:{c['faint']}; }}
+QToolButton#SelBtnDanger {{ color:{c['danger_fg']}; }}
+QToolButton#SelBtnDanger:hover {{ background:{c['danger_bg']}; }}
 
 /* ---------- dashboard layout ---------- */
 QFrame#GCard {{ background:qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {c['card_hi']}, stop:1 {c['card']});
