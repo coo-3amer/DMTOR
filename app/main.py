@@ -2688,10 +2688,13 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        self._relayout_head()
+
+    def _relayout_head(self):
         btns = getattr(self, "head_btns", None)
         if not btns:
             return
-        compact = self.width() < 1100
+        compact = self.width() < (1240 if not btns["open_torrent"].isHidden() else 1100)
         names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all",
                  "open_torrent": "Open .torrent"}
         for k, b in btns.items():
@@ -3037,8 +3040,10 @@ class MainWindow(QMainWindow):
         self.page_title.setText(title)
         active = [i for i in self.mgr.items if i.status == "downloading"]
         speed = sum(i.speed for i in active)
+        v_active = [i for i in items if i.status == "downloading"]
+        v_speed = sum(i.speed for i in v_active)
         up = sum(getattr(i, "upload", 0.0) or 0.0 for i in self.mgr.items)
-        self.page_sub.setText(f"{len(active)} active  ·  {human_size(speed)}/s" if active else
+        self.page_sub.setText(f"{len(v_active)} active  ·  {human_size(v_speed)}/s" if v_active else
                               f"{len(items)} item{'s' if len(items) != 1 else ''}")
         # select all + selection bar
         vis_ids = {i.id for i in items}
@@ -3336,6 +3341,7 @@ class MainWindow(QMainWindow):
         torrent_view = self._filter in dict((k, 1) for k, _, _ in TORRENT_FILTERS)
         self.chips_row.setVisible(not torrent_view)
         self.head_btns["open_torrent"].setVisible(torrent_view)
+        self._relayout_head()
         if torrent_view and self._type != "any":
             self._type = "any"
             for k, b in self._chips.items():
