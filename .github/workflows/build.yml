@@ -70,8 +70,8 @@ jobs:
         run: |
           $p = Start-Process -FilePath dist/MZ-DManager/MZ-DManager.exe -ArgumentList '--shots', "$PWD\shots" -PassThru
           if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Screenshot run timed out" }
-          Get-ChildItem shots | Select-Object Name, Length
-          if (Test-Path shots/error.txt) { Get-Content shots/error.txt }; if (Test-Path shots/fault.txt) { Get-Content shots/fault.txt }
+          Get-ChildItem shots | Select-Object Name, Length | Out-Host
+          if (Test-Path shots/error.txt) { Get-Content shots/error.txt | Out-Host }; if (Test-Path shots/fault.txt) { Get-Content shots/fault.txt | Out-Host }
           if ($p.ExitCode -ne 0) { throw "Screenshot run failed" }
 
       - name: Build installer (Inno Setup)
