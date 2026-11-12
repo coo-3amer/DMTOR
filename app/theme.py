@@ -214,6 +214,7 @@ QToolButton#RailBtn::menu-indicator {{ image:none; width:0; }}
 QToolButton#RailAdd {{ background:{c['acc']}; border:none; border-radius:12px; padding:0 12px; color:{c['on_acc']};
     font-weight:600; text-align:left; }}
 QToolButton#RailAdd:hover {{ background:{c['acc_hover']}; }}
+#RailSection {{ color:{c['faint']}; font-size:8pt; font-weight:700; padding:4px 12px 2px; }}
 QLabel#RailBadge {{ background:{c['hover']}; color:{c['muted']}; border-radius:9px; font-size:8pt; font-weight:600; }}
 QLabel#RailBadge[kind="acc"] {{ background:{c['acc']}; color:{c['on_acc']}; }}
 QLabel#RailBadge[kind="danger"] {{ background:{c['danger_icon']}; color:#ffffff; }}

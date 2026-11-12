@@ -1625,6 +1625,17 @@ NAV = [
 
 
 def matches(it, key):
+    is_t = it.kind == "torrent"
+    if key == "torrents":
+        return is_t
+    if key == "t_active":
+        return is_t and it.status in ("downloading", "queued", "pausing")
+    if key == "t_seeding":
+        return is_t and it.status == "done" and bool(getattr(it, "seeding", False))
+    if key == "t_done":
+        return is_t and it.status == "done"
+    if is_t and key in ("all", "unfinished", "active", "done", "paused", "failed", "scheduled"):
+        return False                      # torrents live in their own section
     if key == "all":
         return True
     if key == "unfinished":
@@ -1672,8 +1683,11 @@ def sort_value(it, key):
 STATUS_FILTERS = [("all", "all", "All downloads"), ("active", "active", "Downloading"),
                   ("done", "done", "Completed"), ("paused", "paused", "Paused"),
                   ("failed", "error", "Failed"), ("scheduled", "clock", "Scheduled")]
+TORRENT_FILTERS = [("torrents", "magnet", "All torrents"), ("t_active", "active", "Downloading"),
+                   ("t_seeding", "upload", "Seeding"), ("t_done", "done", "Completed")]
+ALL_FILTERS = STATUS_FILTERS + TORRENT_FILTERS
 TYPE_CHIPS = [("Video", "Video"), ("Music", "Music"), ("Documents", "Docs"), ("Programs", "Apps"),
-              ("Compressed", "Archives"), ("Images", "Images"), ("Torrents", "Torrents"), ("Other", "Others")]
+              ("Compressed", "Archives"), ("Images", "Images"), ("Other", "Others")]
 SORTS = [(("added", True), "Newest first"), (("added", False), "Oldest first"), (("name", False), "Name"),
          (("size", True), "Size"), (("status", False), "Status")]
 ROW_H = 66
@@ -1882,7 +1896,14 @@ class MainWindow(QMainWindow):
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
-        body.addWidget(self._build_rail())
+        rail_scroll = QScrollArea()
+        rail_scroll.setObjectName("RailScroll")
+        rail_scroll.setWidgetResizable(True)
+        rail_scroll.setFrameShape(QFrame.NoFrame)
+        rail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        rail_scroll.setFixedWidth(206)
+        rail_scroll.setWidget(self._build_rail())
+        body.addWidget(rail_scroll)
         right = QWidget()
         right.setObjectName("Body")
         v = QVBoxLayout(right)
@@ -1977,7 +1998,7 @@ class MainWindow(QMainWindow):
         self.search.removeAction(self._search_action)
         self._search_action = self.search.addAction(icon("search", T("muted"), 18), QLineEdit.LeadingPosition)
         for key, b in self.head_btns.items():
-            b.setIcon(icon(b.property("ic"), T("danger_icon") if key == "delete_all" else T("icon"), 16))
+            b.setIcon(icon(b.property("ic"), {"delete_all": T("danger_icon"), "open_torrent": T("teal")}.get(key, T("icon")), 16))
         for key, b in self._chips.items():
             if key != "any":
                 ic, _ = CATEGORY_ICON.get(key, CATEGORY_ICON["Other"])
@@ -2333,9 +2354,10 @@ class MainWindow(QMainWindow):
         rail = QFrame()
         rail.setObjectName("Rail")
         rail.setFixedWidth(206)
+        rail.setMinimumHeight(660)
         v = QVBoxLayout(rail)
         v.setContentsMargins(12, 14, 12, 14)
-        v.setSpacing(4)
+        v.setSpacing(3)
         self._rail = {}
         self._rail_badges = {}
 
@@ -2345,7 +2367,7 @@ class MainWindow(QMainWindow):
             b.setText(tip)
             b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            b.setFixedHeight(46 if name == "RailAdd" else 40)
+            b.setFixedHeight(46 if name == "RailAdd" else 38)
             b.setIconSize(QSize(20, 20))
             b.setCursor(Qt.PointingHandCursor)
             b.setCheckable(check)
@@ -2359,7 +2381,11 @@ class MainWindow(QMainWindow):
         add.setToolTip("Add a link or a torrent (Ctrl+N)")
         v.addWidget(add)
         v.addSpacing(10)
-        for key, ic, tip in STATUS_FILTERS:
+        for key, ic, tip in ALL_FILTERS:
+            if key == "torrents":
+                v.addSpacing(10)
+                sec = label("TORRENTS", "RailSection")
+                v.addWidget(sec)
             b = rb(key, ic, tip, lambda k=key: self.set_filter(k), check=True)
             bl = QHBoxLayout(b)
             bl.setContentsMargins(0, 0, 10, 0)
@@ -2453,8 +2479,10 @@ class MainWindow(QMainWindow):
         top.addStretch()
         self.head_btns = {}
         for key, text, ic, slot, tip in (
-                ("resume_all", "Resume all", "play", self.mgr.resume_all, "Resume every paused download"),
-                ("stop_all", "Stop all", "stop", self.mgr.pause_all, "Stop every running download"),
+                ("open_torrent", "Open .torrent", "magnet", self.open_torrent_files,
+                 "Open .torrent files (Ctrl+O). Magnet links: use Add download"),
+                ("resume_all", "Resume all", "play", self.resume_all, "Resume everything in this list"),
+                ("stop_all", "Stop all", "stop", self.stop_all, "Stop everything in this list"),
                 ("delete_all", "Delete all", "trash", self.delete_all, "Delete all downloads in this list")):
             b = QPushButton(text)
             b.setObjectName("SoftDanger" if key == "delete_all" else "Soft")
@@ -2464,6 +2492,7 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _=False, s=slot: (s(), self.refresh()))
             self.head_btns[key] = b
             top.addWidget(b)
+        self.head_btns["open_torrent"].hide()
         top.addSpacing(6)
         self.search = QLineEdit()
         self.search.setObjectName("Search")
@@ -2475,7 +2504,9 @@ class MainWindow(QMainWindow):
         top.addWidget(self.search)
         v.addLayout(top)
 
-        chips = QHBoxLayout()
+        self.chips_row = QWidget()
+        chips = QHBoxLayout(self.chips_row)
+        chips.setContentsMargins(0, 0, 0, 0)
         chips.setSpacing(6)
         self._chips = {}
         for key, text in [("any", "All types")] + TYPE_CHIPS:
@@ -2491,7 +2522,7 @@ class MainWindow(QMainWindow):
             chips.addWidget(b)
         chips.addStretch()
         self._chips["any"].setChecked(True)
-        v.addLayout(chips)
+        v.addWidget(self.chips_row)
 
         bar = QHBoxLayout()
         bar.setContentsMargins(4, 6, 0, 0)
@@ -2655,7 +2686,8 @@ class MainWindow(QMainWindow):
         if not btns:
             return
         compact = self.width() < 1100
-        names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all"}
+        names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all",
+                 "open_torrent": "Open .torrent"}
         for k, b in btns.items():
             b.setText("" if compact else names[k])
         self.search.setFixedWidth(170 if compact else 230)
@@ -2961,7 +2993,12 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(0)
         else:
             self.stack.setCurrentIndex(1)
-            if self.mgr.items:
+            if self._filter in dict((k, 1) for k, _, _ in TORRENT_FILTERS) and \
+                    not any(i.kind == "torrent" for i in self.mgr.items):
+                self.empty_title.setText("No torrents yet")
+                self.empty_text.setText("Open a .torrent file, paste a magnet link in Add download,\n"
+                                        "or drop a .torrent file here.")
+            elif self.mgr.items:
                 self.empty_title.setText("Nothing here")
                 self.empty_text.setText("No downloads match this view" + (" or search." if self._search else "."))
             else:
@@ -2975,7 +3012,7 @@ class MainWindow(QMainWindow):
             if badge.text() != str(n):
                 badge.setText(str(n))
                 badge.setFixedWidth(max(22, badge.fontMetrics().horizontalAdvance(str(n)) + 14))
-            kind = {"failed": "danger", "active": "acc", "scheduled": "acc"}.get(key, "plain")
+            kind = {"failed": "danger", "active": "acc", "scheduled": "acc", "t_active": "acc"}.get(key, "plain")
             if badge.property("kind") != kind:
                 badge.setProperty("kind", kind)
                 badge.style().unpolish(badge)
@@ -2986,7 +3023,9 @@ class MainWindow(QMainWindow):
                 continue
             n = sum(1 for i in self.mgr.items if matches(i, self._filter) and item_category(i) == key)
             b.setVisible(bool(n) or key == self._type)
-        title = dict((k, t_) for k, _, t_ in STATUS_FILTERS).get(self._filter, "Downloads")
+        title = {"torrents": "Torrents", "t_active": "Torrents  ·  Downloading", "t_seeding": "Torrents  ·  Seeding",
+                 "t_done": "Torrents  ·  Completed"}.get(self._filter) or \
+            dict((k, t_) for k, _, t_ in STATUS_FILTERS).get(self._filter, "Downloads")
         if self._type != "any":
             title += "  ·  " + dict(TYPE_CHIPS).get(self._type, self._type)
         self.page_title.setText(title)
@@ -3026,8 +3065,9 @@ class MainWindow(QMainWindow):
         sel = self._selected()
         items = self.mgr.items
         hb = self.head_btns
-        hb["resume_all"].setEnabled(any(i.status in ("paused", "error") for i in items))
-        hb["stop_all"].setEnabled(any(i.status in ("downloading", "queued") for i in items))
+        vis = self._visible_items()
+        hb["resume_all"].setEnabled(any(i.status in ("paused", "error") for i in vis))
+        hb["stop_all"].setEnabled(any(i.status in ("downloading", "queued") for i in vis))
         hb["delete_all"].setEnabled(bool(self._visible_items()))
         self.selbar.setVisible(bool(sel))
         if sel:
@@ -3035,6 +3075,16 @@ class MainWindow(QMainWindow):
             b = self.sel_btns
             b["resume"].setEnabled(any(i.status in ("paused", "error", "pausing") for i in sel))
             b["pause"].setEnabled(any(i.status in ("downloading", "queued") for i in sel))
+
+    def resume_all(self):
+        for it in self._visible_items():
+            if it.status in ("paused", "error"):
+                it.resume()
+
+    def stop_all(self):
+        for it in self._visible_items():
+            if it.status in ("downloading", "queued", "pausing"):
+                it.pause()
 
     def delete_all(self):
         items = self._visible_items()
@@ -3133,7 +3183,10 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def _select_filter(self, key):
-        if key in dict(TYPE_CHIPS):
+        if key == "Torrents":
+            if not self._filter.startswith("t"):
+                self.set_filter("torrents")
+        elif key in dict(TYPE_CHIPS):
             self.set_type(key)
 
     def _paste_shortcut(self):
@@ -3269,9 +3322,18 @@ class MainWindow(QMainWindow):
     def set_filter(self, key):
         if key in dict(TYPE_CHIPS):
             return self.set_type(key)
-        self._filter = key if key in self._rail else "all"
-        for k, _, _ in STATUS_FILTERS:
+        if key == "Torrents":
+            key = "torrents"
+        self._filter = key if key in dict((k, 1) for k, _, _ in ALL_FILTERS) else "all"
+        for k, _, _ in ALL_FILTERS:
             self._rail[k].setChecked(k == self._filter)
+        torrent_view = self._filter in dict((k, 1) for k, _, _ in TORRENT_FILTERS)
+        self.chips_row.setVisible(not torrent_view)
+        self.head_btns["open_torrent"].setVisible(torrent_view)
+        if torrent_view and self._type != "any":
+            self._type = "any"
+            for k, b in self._chips.items():
+                b.setChecked(k == "any")
         self._rail_icons()
         self._row_ids = []
         self.refresh()
@@ -3464,6 +3526,9 @@ def shots(out):
     w.set_type("Video")
     save(w, "main_filter_video")
     w.set_type("any")
+    w.set_filter("torrents")
+    save(w, "main_torrents")
+    w.set_filter("all")
     w.setMinimumSize(820, 520)
     w.resize(900, 560)
     hover(mgr.items[0])
