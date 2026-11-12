@@ -2589,6 +2589,12 @@ class MainWindow(QMainWindow):
         return t
 
     def eventFilter(self, obj, ev):
+        try:
+            return self._event_filter(obj, ev)
+        except RuntimeError:          # widgets already gone while the app shuts down
+            return False
+
+    def _event_filter(self, obj, ev):
         t = getattr(self, "table", None)
         if t is not None and obj is t.viewport():
             et = ev.type()
@@ -2622,7 +2628,7 @@ class MainWindow(QMainWindow):
                             if et == QEvent.MouseButtonPress:
                                 self._row_button(iid, n, t.viewport().mapToGlobal(b.bottomLeft().toPoint()))
                             return True
-        return super().eventFilter(obj, ev)
+        return QMainWindow.eventFilter(self, obj, ev)
 
     def _row_button(self, iid, n, gpos):
         it = self.mgr.get(iid)
@@ -3531,7 +3537,7 @@ def shots(out):
     w.set_filter("all")
     w.setMinimumSize(820, 520)
     w.resize(900, 560)
-    hover(mgr.items[0])
+    hover(mgr.items[1])
     save(w, "main_small")
     w.setMinimumSize(1180, 760)
     w.resize(1180, 760)
