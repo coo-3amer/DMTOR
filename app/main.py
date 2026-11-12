@@ -2654,11 +2654,18 @@ class MainWindow(QMainWindow):
         btns = getattr(self, "head_btns", None)
         if not btns:
             return
-        compact = self.width() < 1220
+        compact = self.width() < 1100
         names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all"}
         for k, b in btns.items():
             b.setText("" if compact else names[k])
         self.search.setFixedWidth(170 if compact else 230)
+        chip_names = dict([("any", "All types")] + TYPE_CHIPS)
+        for k, b in self._chips.items():
+            b.setToolTip(chip_names[k])
+            if k == "any":
+                b.setText("All" if compact else "All types")
+            else:
+                b.setToolButtonStyle(Qt.ToolButtonIconOnly if compact else Qt.ToolButtonTextBesideIcon)
 
     def _clear_selection(self):
         self._checked.clear()
