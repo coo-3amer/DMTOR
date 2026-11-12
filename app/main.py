@@ -2513,7 +2513,7 @@ class MainWindow(QMainWindow):
 
     def _set_sort(self, val, refresh=True):
         self._sort = val
-        self.sort_btn.setText("Sort: " + dict(SORTS).get(val, "Newest first") + "  ▾")
+        self.sort_btn.setText("Sort: " + dict(SORTS).get(val, "Newest first"))
         self._row_ids = []
         if refresh:
             self.refresh()
@@ -2636,6 +2636,17 @@ class MainWindow(QMainWindow):
         wrap.hide()
         self.selbar = wrap
         return wrap
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        btns = getattr(self, "head_btns", None)
+        if not btns:
+            return
+        compact = self.width() < 1080
+        names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all"}
+        for k, b in btns.items():
+            b.setText("" if compact else names[k])
+        self.search.setFixedWidth(170 if compact else 230)
 
     def _clear_selection(self):
         self._checked.clear()
@@ -2942,13 +2953,17 @@ class MainWindow(QMainWindow):
         # rail badges, chip counts, titles
         for key, badge in self._rail_badges.items():
             n = sum(1 for i in self.mgr.items if matches(i, key)) if key in ("active", "failed", "scheduled") else 0
-            badge.setText(str(n))
-            badge.setProperty("kind", "danger" if key == "failed" else "acc")
+            if badge.text() != str(n):
+                badge.setText(str(n))
+                bw = max(16, badge.fontMetrics().horizontalAdvance(str(n)) + 10)
+                badge.setFixedSize(bw, 16)
+                badge.move(44 - bw + 2, 0)
+            kind = "danger" if key == "failed" else "acc"
+            if badge.property("kind") != kind:
+                badge.setProperty("kind", kind)
+                badge.style().unpolish(badge)
+                badge.style().polish(badge)
             badge.setVisible(bool(n))
-            if n:
-                badge.adjustSize()
-                badge.setFixedWidth(max(16, badge.sizeHint().width() + 6))
-                badge.move(44 - badge.width() + 2, 0)
         for key, b in self._chips.items():
             if key == "any":
                 continue

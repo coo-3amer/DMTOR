@@ -224,6 +224,8 @@ QPushButton#Soft:hover {{ background:{c['btn_hover']}; }}
 QPushButton#SoftDanger {{ color:{c['danger_fg']}; }}
 QPushButton#SoftDanger:hover {{ background:{c['danger_bg']}; border-color:{c['danger_border']}; }}
 QPushButton#Soft:disabled, QPushButton#SoftDanger:disabled {{ color:{c['faint']}; background:transparent; border-color:{c['line2']}; }}
+QToolButton#LinkBtn::menu-indicator {{ image:url({asset('chevron-down.png')}); width:10px; height:10px; subcontrol-position:right center; }}
+QToolButton#LinkBtn {{ padding-right:16px; }}
 QFrame#SelBar {{ background:{c['card_hi']}; border:1px solid {c['glow_border']}; border-radius:14px; }}
 #SelText {{ color:{c['strong']}; font-weight:600; }}
 QToolButton#SelBtn, QToolButton#SelBtnDanger {{ background:transparent; border:none; border-radius:9px; padding:6px 10px; color:{c['text']}; }}
