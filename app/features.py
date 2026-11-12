@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-VERSION = "2.1"
+VERSION = "2.2"
 REPO = "coo-3amer/DMTOR"   # GitHub repository (its name stays)
 
 ACTIONS = [("none", "Do nothing"), ("sleep", "Put the computer to sleep"),

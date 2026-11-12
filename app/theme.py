@@ -205,14 +205,17 @@ QToolButton#CatchPill[off="true"] {{ background:{c['warn_bg']}; color:{c['warn_f
 
 /* ---------- simple layout ---------- */
 QFrame#Rail {{ background:{c['side']}; border-right:1px solid {c['line2']}; }}
-QToolButton#RailBtn {{ background:transparent; border:none; border-radius:12px; }}
-QToolButton#RailBtn:hover {{ background:{c['hover']}; }}
-QToolButton#RailBtn:checked {{ background:{c['row_sel']}; }}
-QToolButton#RailBtn[on="true"] {{ background:{c['info_bg']}; }}
+QToolButton#RailBtn {{ background:transparent; border:none; border-radius:10px; padding:0 10px; text-align:left;
+    color:{c['side_text']}; }}
+QToolButton#RailBtn:hover {{ background:{c['hover']}; color:{c['strong']}; }}
+QToolButton#RailBtn:checked {{ background:{c['row_sel']}; color:{c['strong']}; font-weight:600; }}
+QToolButton#RailBtn[on="true"] {{ background:{c['info_bg']}; color:{c['info_fg']}; }}
 QToolButton#RailBtn::menu-indicator {{ image:none; width:0; }}
-QToolButton#RailAdd {{ background:{c['acc']}; border:none; border-radius:14px; }}
+QToolButton#RailAdd {{ background:{c['acc']}; border:none; border-radius:12px; padding:0 12px; color:{c['on_acc']};
+    font-weight:600; text-align:left; }}
 QToolButton#RailAdd:hover {{ background:{c['acc_hover']}; }}
-QLabel#RailBadge {{ background:{c['acc']}; color:{c['on_acc']}; border-radius:8px; font-size:7.5pt; font-weight:700; padding:0 3px; }}
+QLabel#RailBadge {{ background:{c['hover']}; color:{c['muted']}; border-radius:9px; font-size:8pt; font-weight:600; }}
+QLabel#RailBadge[kind="acc"] {{ background:{c['acc']}; color:{c['on_acc']}; }}
 QLabel#RailBadge[kind="danger"] {{ background:{c['danger_icon']}; color:#ffffff; }}
 QToolButton#Chip {{ background:transparent; border:1px solid {c['card_border']}; border-radius:14px; padding:5px 12px;
     color:{c['muted']}; }}

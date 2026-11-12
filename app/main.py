@@ -2022,6 +2022,9 @@ class MainWindow(QMainWindow):
         key = self.mgr.settings.get("after_done", "none")
         b = self._rail["when_done"]
         b.setToolTip("When downloads finish: " + dict(ACTIONS).get(key, "Do nothing"))
+        short = {"none": "When done", "sleep": "When done: Sleep", "shutdown": "When done: Shut down",
+                 "quit": "When done: Close"}
+        b.setText(short.get(key, "When done"))
         b.setProperty("on", key != "none")
         b.style().unpolish(b)
         b.style().polish(b)
@@ -2213,6 +2216,7 @@ class MainWindow(QMainWindow):
         on = s.get("limit_on", False)
         b = self._rail["speed"]
         down, t_down, t_up = self.mgr.effective_limits()
+        b.setText(f"Speed: {fmt_rate(down)}" if on and down else ("Speed: limited" if on else "Speed limit"))
         self.limit_lbl.setText(f"Speed limit: {fmt_rate(down)}" if on and down else ("Speed limit on" if on else ""))
         if on:
             tip = (f"Speed limit ON\nDownloads: {fmt_rate(down)}\nTorrents: ↓ {fmt_rate(t_down)}"
@@ -2328,19 +2332,21 @@ class MainWindow(QMainWindow):
     def _build_rail(self):
         rail = QFrame()
         rail.setObjectName("Rail")
-        rail.setFixedWidth(68)
+        rail.setFixedWidth(206)
         v = QVBoxLayout(rail)
         v.setContentsMargins(12, 14, 12, 14)
-        v.setSpacing(6)
+        v.setSpacing(4)
         self._rail = {}
         self._rail_badges = {}
 
         def rb(key, ic, tip, slot=None, check=False, name="RailBtn"):
             b = QToolButton()
             b.setObjectName(name)
-            b.setFixedSize(44, 44)
-            b.setIconSize(QSize(22, 22))
-            b.setToolTip(tip)
+            b.setText(tip)
+            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            b.setFixedHeight(46 if name == "RailAdd" else 40)
+            b.setIconSize(QSize(20, 20))
             b.setCursor(Qt.PointingHandCursor)
             b.setCheckable(check)
             b.setProperty("ic", ic)
@@ -2349,20 +2355,25 @@ class MainWindow(QMainWindow):
             self._rail[key] = b
             return b
 
-        add = rb("add", "add_plus", "Add a download (Ctrl+N)", self.add_dialog, name="RailAdd")
+        add = rb("add", "add_plus", "Add download", self.add_dialog, name="RailAdd")
+        add.setToolTip("Add a link or a torrent (Ctrl+N)")
         v.addWidget(add)
         v.addSpacing(10)
         for key, ic, tip in STATUS_FILTERS:
             b = rb(key, ic, tip, lambda k=key: self.set_filter(k), check=True)
-            badge = QLabel(b)
+            bl = QHBoxLayout(b)
+            bl.setContentsMargins(0, 0, 10, 0)
+            bl.addStretch()
+            badge = QLabel()
             badge.setObjectName("RailBadge")
             badge.setAlignment(Qt.AlignCenter)
-            badge.setFixedHeight(16)
+            badge.setFixedHeight(18)
             badge.hide()
+            bl.addWidget(badge)
             self._rail_badges[key] = badge
             v.addWidget(b)
         v.addStretch()
-        sp = rb("speed", "gauge", "Speed limits")
+        sp = rb("speed", "gauge", "Speed limit")
         sp.setPopupMode(QToolButton.InstantPopup)
         self.speed_menu = QMenu(sp)
         self.speed_menu.aboutToShow.connect(lambda: self._fill_speed_menu(self.speed_menu))
@@ -2375,6 +2386,7 @@ class MainWindow(QMainWindow):
         wd.setMenu(self.when_menu)
         v.addWidget(wd)
         v.addWidget(rb("settings", "gear", "Settings", self.settings_dialog))
+        v.addWidget(rb("browser", "link", "Connect browser", open_browser_guide))
         more = rb("more", "dots", "More")
         more.setPopupMode(QToolButton.InstantPopup)
         self.more_menu = QMenu(more)
@@ -2388,11 +2400,11 @@ class MainWindow(QMainWindow):
         for key, b in self._rail.items():
             ic = b.property("ic")
             if key == "add":
-                b.setIcon(icon("add_plus", T("on_acc"), 22, 2.2))
+                b.setIcon(icon("add_plus", T("on_acc"), 20, 2.3))
             elif key in ("speed", "when_done") and b.property("on"):
-                b.setIcon(icon(ic, T("info_fg"), 22))
+                b.setIcon(icon(ic, T("info_fg"), 20))
             else:
-                b.setIcon(icon(ic, T("strong") if b.isChecked() else T("muted"), 22))
+                b.setIcon(icon(ic, T("strong") if b.isChecked() else T("side_text"), 20))
 
     def _fill_more_menu(self, m):
         m.clear()
@@ -2642,7 +2654,7 @@ class MainWindow(QMainWindow):
         btns = getattr(self, "head_btns", None)
         if not btns:
             return
-        compact = self.width() < 1080
+        compact = self.width() < 1220
         names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all"}
         for k, b in btns.items():
             b.setText("" if compact else names[k])
@@ -2952,13 +2964,11 @@ class MainWindow(QMainWindow):
 
         # rail badges, chip counts, titles
         for key, badge in self._rail_badges.items():
-            n = sum(1 for i in self.mgr.items if matches(i, key)) if key in ("active", "failed", "scheduled") else 0
+            n = sum(1 for i in self.mgr.items if matches(i, key))
             if badge.text() != str(n):
                 badge.setText(str(n))
-                bw = max(16, badge.fontMetrics().horizontalAdvance(str(n)) + 10)
-                badge.setFixedSize(bw, 16)
-                badge.move(44 - bw + 2, 0)
-            kind = "danger" if key == "failed" else "acc"
+                badge.setFixedWidth(max(22, badge.fontMetrics().horizontalAdvance(str(n)) + 14))
+            kind = {"failed": "danger", "active": "acc", "scheduled": "acc"}.get(key, "plain")
             if badge.property("kind") != kind:
                 badge.setProperty("kind", kind)
                 badge.style().unpolish(badge)
