@@ -1,10 +1,10 @@
 @echo off
 setlocal
-title EDENLOAD - Build
+title MZ-DManager - Build
 cd /d "%~dp0"
 
 echo ============================================
-echo   EDENLOAD - building EDENLOAD.exe
+echo   MZ-DManager - building MZ-DManager.exe
 echo ============================================
 
 rem --- pick a Python that torrent support works with (3.13 / 3.12 / 3.11), else any Python
@@ -49,11 +49,11 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/5] Building EDENLOAD.exe ...
+echo [3/5] Building MZ-DManager.exe ...
 set "EXTRA="
 if "%TORRENT%"=="yes" set "EXTRA=--hidden-import libtorrent"
 %PY% -m PyInstaller --noconfirm --clean --onefile --windowed ^
-  --name EDENLOAD --icon assets\app.ico --add-data "assets;assets" ^
+  --name MZ-DManager --icon assets\app.ico --add-data "assets;assets" ^
   --paths app %EXTRA% app\main.py
 if errorlevel 1 goto fail
 
@@ -73,7 +73,7 @@ xcopy /E /I /Y extension dist\extension >nul
 echo.
 echo ============================================
 echo   DONE!  Your program is in the "dist" folder:
-echo     dist\EDENLOAD.exe
+echo     dist\MZ-DManager.exe
 echo     dist\extension   (load it in Chrome / Edge)
 if "%TORRENT%"=="no" echo   Note: built WITHOUT torrent support (see above).
 echo ============================================

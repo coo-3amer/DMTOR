@@ -1,4 +1,4 @@
-// Remember that *you* clicked something (in any frame), so EDENLOAD only catches downloads you start.
+// Remember that *you* clicked something (in any frame), so MZ-DManager only catches downloads you start.
 (() => {
   let lastSent = 0;
   const noteClick = (e) => {

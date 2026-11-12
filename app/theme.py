@@ -1,4 +1,4 @@
-"""Themes for EDENLOAD. Every color in the app comes from the active palette here."""
+"""Themes for MZ-DManager. Every color in the app comes from the active palette here."""
 import sys
 
 from PySide6.QtGui import QPalette, QColor

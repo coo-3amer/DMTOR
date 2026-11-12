@@ -1,4 +1,4 @@
-name: Build EDENLOAD installer
+name: Build MZ-DManager installer
 
 on:
   push:
@@ -25,46 +25,42 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt libtorrent pyinstaller
 
-      - name: Build EDENLOAD (PyInstaller)
+      - name: Build MZ-DManager (PyInstaller)
         run: >
           pyinstaller --noconfirm --clean --onedir --windowed
-          --name EDENLOAD --icon assets/app.ico
+          --name MZ-DManager --icon assets/app.ico
           --add-data "assets;assets"
           --paths app
           --hidden-import libtorrent
           --collect-all libtorrent
           --collect-submodules yt_dlp
+          --exclude-module tkinter --exclude-module unittest --exclude-module pydoc
+          --exclude-module PySide6.QtNetwork --exclude-module PySide6.QtQml --exclude-module PySide6.QtQuick
+          --exclude-module PySide6.QtPdf --exclude-module PySide6.QtOpenGL --exclude-module PySide6.QtDBus
           app/main.py
 
-      - name: Add ffmpeg (HD video + MP3)
+      - name: Trim unused Qt parts
         shell: pwsh
         run: |
-          $ProgressPreference = 'SilentlyContinue'
-          $sources = @(
-            'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip',
-            'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip',
-            'https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip'
-          )
-          $ok = $false
-          foreach ($u in $sources) {
-            for ($try = 1; $try -le 3 -and -not $ok; $try++) {
-              try {
-                Write-Host "ffmpeg: $u (try $try)"
-                Invoke-WebRequest $u -OutFile ffmpeg.zip -TimeoutSec 300
-                Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
-                $ok = $true
-              } catch { Write-Host "  failed: $($_.Exception.Message)"; Start-Sleep -Seconds 10 }
-            }
-            if ($ok) { break }
+          $before = (Get-ChildItem dist/MZ-DManager -Recurse | Measure-Object Length -Sum).Sum
+          $q = "dist/MZ-DManager/_internal/PySide6"
+          $junk = @("opengl32sw.dll", "Qt6Pdf.dll", "Qt6Qml*.dll", "Qt6Quick*.dll", "Qt6VirtualKeyboard*.dll",
+                    "Qt6OpenGL.dll", "Qt6Network.dll", "Qt6DBus.dll", "QtNetwork.pyd", "QtQml.pyd", "QtQuick.pyd",
+                    "QtPdf.pyd", "QtOpenGL.pyd", "QtDBus.pyd")
+          foreach ($j in $junk) { Get-ChildItem $q -Filter $j -ErrorAction SilentlyContinue | Remove-Item -Force }
+          foreach ($d in @("translations", "qml", "plugins/tls", "plugins/networkinformation",
+                           "plugins/platforminputcontexts", "plugins/generic", "plugins/egldeviceintegrations")) {
+            if (Test-Path "$q/$d") { Remove-Item "$q/$d" -Recurse -Force }
           }
-          if (-not $ok) { throw "Could not download ffmpeg from any source" }
-          $exe = Get-ChildItem ffmpeg_tmp -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          Copy-Item $exe.FullName dist/EDENLOAD/ffmpeg.exe
+          $after = (Get-ChildItem dist/MZ-DManager -Recurse | Measure-Object Length -Sum).Sum
+          Write-Host ("App folder: {0:N1} MB -> {1:N1} MB" -f ($before / 1MB), ($after / 1MB))
+          Get-ChildItem dist/MZ-DManager/_internal -Recurse -File | Sort-Object Length -Descending | Select-Object -First 15 |
+            ForEach-Object { Write-Host ("{0,8:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name) }
 
       - name: Self-test the exe
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist/EDENLOAD/EDENLOAD.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -PassThru
+          $p = Start-Process -FilePath dist/MZ-DManager/MZ-DManager.exe -ArgumentList '--selftest', "$PWD\selftest.txt" -PassThru
           if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Self-test timed out" }
           Get-Content selftest.txt
           if ($p.ExitCode -ne 0) { throw "Self-test failed" }
@@ -72,7 +68,7 @@ jobs:
       - name: Screenshots of the real windows (every theme)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist/EDENLOAD/EDENLOAD.exe -ArgumentList '--shots', "$PWD\shots" -PassThru
+          $p = Start-Process -FilePath dist/MZ-DManager/MZ-DManager.exe -ArgumentList '--shots', "$PWD\shots" -PassThru
           if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Screenshot run timed out" }
           Get-ChildItem shots | Select-Object Name, Length
           if (Test-Path shots/error.txt) { Get-Content shots/error.txt }
@@ -87,12 +83,13 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           $ver = (Select-String -Path app/features.py -Pattern 'VERSION = "([0-9.]+)"').Matches[0].Groups[1].Value
-          & $iscc "/DAppVersion=$ver.0" installer/EDENLOAD.iss
+          & $iscc "/DAppVersion=$ver.0" installer/MZ-DManager.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
-          Get-ChildItem output
+          Get-ChildItem output | ForEach-Object { Write-Host ("Setup size: {0:N1} MB" -f ($_.Length / 1MB)) }
           "VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Publish release (download page)
+        if: contains(github.event.head_commit.message, '[release]')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -105,12 +102,13 @@ jobs:
           foreach ($t in $tags) { gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$t" | Out-Null; Write-Host "removed tag $t" }
           gh release view $tag 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag output/EDENLOAD-Setup.exe --title "EDENLOAD $env:VER" --notes "Download EDENLOAD-Setup.exe below and double-click it to install."
+            gh release create $tag output/MZ-DManager-Setup.exe --title "MZ-DManager $env:VER" --notes "Download MZ-DManager-Setup.exe below and double-click it to install."
           } else {
-            gh release upload $tag output/EDENLOAD-Setup.exe --clobber
+            gh release upload $tag output/MZ-DManager-Setup.exe --clobber
           }
 
       - name: Remove old build runs
+        if: contains(github.event.head_commit.message, '[release]')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -123,20 +121,20 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force pub | Out-Null
-          Copy-Item output/EDENLOAD-Setup.exe pub/
+          Copy-Item output/MZ-DManager-Setup.exe pub/
           if (Test-Path shots) { Copy-Item -Recurse shots pub/shots }
           Set-Location pub
           git init -q -b download
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git add -A
-          git commit -q -m "EDENLOAD $env:VER installer"
+          git commit -q -m "MZ-DManager $env:VER installer"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" download
 
       - uses: actions/upload-artifact@v4
         with:
-          name: EDENLOAD-Setup
-          path: output/EDENLOAD-Setup.exe
+          name: MZ-DManager-Setup
+          path: output/MZ-DManager-Setup.exe
           retention-days: 30
 
       - uses: actions/upload-artifact@v4

@@ -1,4 +1,4 @@
-"""Scheduler, "when done" actions, clipboard filter and auto-update for EDENLOAD."""
+"""Scheduler, "when done" actions, clipboard filter and auto-update for MZ-DManager."""
 import os
 import re
 import sys
@@ -13,7 +13,7 @@ VERSION = "2.0"
 REPO = "coo-3amer/DMTOR"   # GitHub repository (its name stays)
 
 ACTIONS = [("none", "Do nothing"), ("sleep", "Put the computer to sleep"),
-           ("shutdown", "Shut down the computer"), ("quit", "Close EDENLOAD")]
+           ("shutdown", "Shut down the computer"), ("quit", "Close MZ-DManager")]
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 ACTIVE = ("downloading", "queued", "pausing")
@@ -183,7 +183,7 @@ def is_newer(remote, local=VERSION):
 def check_latest(timeout=10):
     """{'version', 'url', 'page', 'notes', 'size'} for the latest release. Raises on failure."""
     r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=timeout,
-                     headers={"Accept": "application/vnd.github+json", "User-Agent": f"EDENLOAD/{VERSION}"})
+                     headers={"Accept": "application/vnd.github+json", "User-Agent": f"MZ-DManager/{VERSION}"})
     if r.status_code == 404:
         raise IOError("No public releases found")
     r.raise_for_status()
@@ -197,7 +197,7 @@ def check_latest(timeout=10):
 
 def download_update(url, dest, progress=None, stop=None):
     tmp = dest + ".part"
-    with requests.get(url, stream=True, timeout=30, headers={"User-Agent": f"EDENLOAD/{VERSION}"}) as r:
+    with requests.get(url, stream=True, timeout=30, headers={"User-Agent": f"MZ-DManager/{VERSION}"}) as r:
         r.raise_for_status()
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
@@ -219,16 +219,22 @@ def install_key():
         return ""
     try:
         import winreg
-        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\EDENLOAD")
-        v = winreg.QueryValueEx(k, "InstallKey")[0]
-        winreg.CloseKey(k)
-        return v or ""
-    except OSError:
+        for path in (r"Software\MZ-DManager", r"Software\EDENLOAD"):
+            try:
+                k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, path)
+                v = winreg.QueryValueEx(k, "InstallKey")[0]
+                winreg.CloseKey(k)
+                if v:
+                    return v
+            except OSError:
+                continue
+        return ""
+    except Exception:
         return ""
 
 
 def run_installer(path):
-    """Start the new Setup; it closes EDENLOAD, updates it and opens it again.
+    """Start the new Setup; it closes MZ-DManager, updates it and opens it again.
     With a saved install password it runs silently; without one the Setup shows its password page."""
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     args = [path, "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"]
@@ -240,3 +246,47 @@ def run_installer(path):
 
 def update_due(settings, every_hours=12):
     return settings.get("auto_update", True) and time.time() - settings.get("last_update_check", 0) > every_hours * 3600
+
+
+# ---------------------------------------------------------------- ffmpeg on demand
+FFMPEG_SOURCES = [
+    # single ffmpeg.exe in a zip (~30 MB)
+    "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v6.1/ffmpeg-6.1-win-64.zip",
+    # bigger fall-backs (ffmpeg + ffprobe + ffplay)
+    "https://github.com/GyanD/codexffmpeg/releases/download/7.1/ffmpeg-7.1-essentials_build.zip",
+    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+]
+
+
+def download_ffmpeg(dest_dir, progress=None, stop=None):
+    """Fetch ffmpeg.exe into dest_dir. Returns its path. Raises if every source fails."""
+    import zipfile
+    os.makedirs(dest_dir, exist_ok=True)
+    last = None
+    for url in FFMPEG_SOURCES:
+        tmp = os.path.join(dest_dir, "ffmpeg-download.zip")
+        try:
+            download_update(url, tmp, progress, stop)
+            with zipfile.ZipFile(tmp) as z:
+                member = next((n for n in z.namelist() if n.lower().endswith("ffmpeg.exe")), None)
+                if not member:
+                    raise IOError("ffmpeg.exe not in the archive")
+                out = os.path.join(dest_dir, "ffmpeg.exe")
+                with z.open(member) as src, open(out + ".tmp", "wb") as dst:
+                    while True:
+                        b = src.read(1024 * 1024)
+                        if not b:
+                            break
+                        dst.write(b)
+                os.replace(out + ".tmp", out)
+            os.remove(tmp)
+            return out
+        except Exception as e:
+            last = e
+            if stop is not None and stop.is_set():
+                raise
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+    raise IOError(f"Couldn't download ffmpeg: {last}")

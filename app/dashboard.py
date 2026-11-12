@@ -1,4 +1,4 @@
-"""EDENLOAD — the 'Dashboard' layout (glass look): stats, active download cards, recent files, preview."""
+"""MZ-DManager — the 'Dashboard' layout (glass look): stats, active download cards, recent files, preview."""
 import os
 import subprocess
 import threading
@@ -516,7 +516,7 @@ class Dashboard(GlassBackground):
         col.setSpacing(0)
         t = QHBoxLayout()
         t.setSpacing(8)
-        t.addWidget(lbl("EDENLOAD", "BrandBig"))
+        t.addWidget(lbl("MZ-DManager", "BrandBig"))
         t.addStretch()
         col.addLayout(t)
         col.addWidget(lbl("Fast  •  Smart  •  All Media", "Muted"))

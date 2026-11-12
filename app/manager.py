@@ -37,14 +37,14 @@ def downloads_dir():
 
 # default folders of earlier versions → moved to the Downloads folder itself
 OLD_DEFAULTS = [os.path.join(os.path.expanduser("~"), "Downloads", n)
-                for n in ("EDENLOAD Downloads", "DMTOR Downloads", "Eden Downloads")]
+                for n in ("MZ-DManager Downloads", "DMTOR Downloads", "Eden Downloads")]
 
 
 def data_dir():
     base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
-    d = os.path.join(base, "EDENLOAD")
+    d = os.path.join(base, "MZ-DManager")
     if not os.path.isdir(d):                     # earlier names: carry the download list over once
-        for name in ("DMTOR", "EdenDM"):
+        for name in ("EDENLOAD", "DMTOR", "EdenDM"):
             old = os.path.join(base, name)
             if os.path.isdir(old):
                 import shutil

@@ -23,8 +23,15 @@ def app_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def ffmpeg_home():
+    """Where the on-demand ffmpeg is kept (it isn't bundled, to keep the Setup small)."""
+    base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "MZ-DManager", "ffmpeg")
+
+
 def ffmpeg_path():
-    for c in (os.path.join(app_dir(), "ffmpeg.exe"), os.path.join(app_dir(), "ffmpeg")):
+    for c in (os.path.join(app_dir(), "ffmpeg.exe"), os.path.join(ffmpeg_home(), "ffmpeg.exe"),
+              os.path.join(app_dir(), "ffmpeg")):
         if os.path.isfile(c):
             return c
     return shutil.which("ffmpeg")

@@ -1,4 +1,4 @@
-"""Hand-drawn line icons for EDENLOAD (rendered from inline SVG)."""
+"""Hand-drawn line icons for MZ-DManager (rendered from inline SVG)."""
 from PySide6.QtCore import Qt, QByteArray
 from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtSvg import QSvgRenderer

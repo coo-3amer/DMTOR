@@ -1,4 +1,4 @@
-"""EDENLOAD - core segmented downloader with pause/resume."""
+"""MZ-DManager - core segmented downloader with pause/resume."""
 import os
 import re
 import time

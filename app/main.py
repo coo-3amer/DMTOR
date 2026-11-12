@@ -1,4 +1,4 @@
-"""EDENLOAD - main window."""
+"""MZ-DManager - main window."""
 import os
 import re
 import sys
@@ -37,8 +37,8 @@ from video import QUALITIES, ffmpeg_path
 import torrent
 from torrent import is_torrent_source
 
-APP_NAME = "EDENLOAD"
-LEGACIES = ("DMTOR", "EdenDM")   # names of earlier versions; cleaned up from the registry
+APP_NAME = "MZ-DManager"
+LEGACIES = ("EDENLOAD", "DMTOR", "EdenDM")   # names of earlier versions; cleaned up from the registry
 VIDEO_SITES = re.compile(
     r"(youtube\.com|youtu\.be|facebook\.com|fb\.watch|instagram\.com|tiktok\.com|twitter\.com|"
     r"(^|//|\.)x\.com|vimeo\.com|dailymotion\.com|twitch\.tv|reddit\.com|soundcloud\.com)", re.I)
@@ -89,10 +89,10 @@ def set_startup(enabled):
                          r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
     try:
         if enabled:
-            winreg.SetValueEx(key, "EDENLOAD", 0, winreg.REG_SZ, launch_cmd("--tray"))
+            winreg.SetValueEx(key, "MZ-DManager", 0, winreg.REG_SZ, launch_cmd("--tray"))
         else:
             try:
-                winreg.DeleteValue(key, "EDENLOAD")
+                winreg.DeleteValue(key, "MZ-DManager")
             except FileNotFoundError:
                 pass
         for old in LEGACIES:
@@ -105,7 +105,7 @@ def set_startup(enabled):
 
 
 def set_torrent_assoc(enabled):
-    """Open magnet: links and .torrent files with EDENLOAD (per-user, no admin needed)."""
+    """Open magnet: links and .torrent files with MZ-DManager (per-user, no admin needed)."""
     if sys.platform != "win32":
         return
     import winreg
@@ -142,11 +142,11 @@ def set_torrent_assoc(enabled):
         put("magnet\\shell\\open\\command", {"": cmd})
         for old in LEGACIES:
             drop(old + ".torrent")
-        put("EDENLOAD.torrent", {"": "Torrent file"})
-        put("EDENLOAD.torrent\\DefaultIcon", {"": exe_icon})
-        put("EDENLOAD.torrent\\shell\\open\\command", {"": cmd})
-        put(".torrent", {"": "EDENLOAD.torrent"})
-        put(".torrent\\OpenWithProgids", {"EDENLOAD.torrent": ""})
+        put("MZ-DManager.torrent", {"": "Torrent file"})
+        put("MZ-DManager.torrent\\DefaultIcon", {"": exe_icon})
+        put("MZ-DManager.torrent\\shell\\open\\command", {"": cmd})
+        put(".torrent", {"": "MZ-DManager.torrent"})
+        put(".torrent\\OpenWithProgids", {"MZ-DManager.torrent": ""})
     else:
         try:
             k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, base + "magnet\\shell\\open\\command")
@@ -154,14 +154,14 @@ def set_torrent_assoc(enabled):
             winreg.CloseKey(k)
         except OSError:
             current = ""
-        if any(n in current for n in ("EDENLOAD",) + LEGACIES) or sys.executable in current:
+        if any(n in current for n in ("MZ-DManager",) + LEGACIES) or sys.executable in current:
             drop("magnet")
-        drop("EDENLOAD.torrent")
+        drop("MZ-DManager.torrent")
         for old in LEGACIES:
             drop(old + ".torrent")
         try:
             k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, base + ".torrent", 0, winreg.KEY_ALL_ACCESS)
-            if winreg.QueryValueEx(k, "")[0] in tuple(n + ".torrent" for n in ("EDENLOAD",) + LEGACIES):
+            if winreg.QueryValueEx(k, "")[0] in tuple(n + ".torrent" for n in ("MZ-DManager",) + LEGACIES):
                 winreg.DeleteValue(k, "")
             winreg.CloseKey(k)
         except OSError:
@@ -450,6 +450,56 @@ class InfoCard(QFrame):
         self.warn.setVisible(bool(warn))
 
 
+
+class _FFSignals(QObject):
+    progress = Signal(int, int)
+    finished = Signal(str)
+
+
+class FFmpegGetter(QWidget):
+    """Shown when ffmpeg is missing: one click fetches it (keeps the Setup small)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.note = label("HD video needs a small add-on (~30 MB). Without it videos come as a "
+                          "single file (usually up to 720p).", "Warn", wrap=True)
+        self.btn = QPushButton("Download add-on")
+        self.btn.clicked.connect(self.start)
+        lay.addWidget(self.note, 1)
+        lay.addWidget(self.btn)
+        self.sig = _FFSignals()
+        self.sig.progress.connect(self._progress)
+        self.sig.finished.connect(self._done)
+
+    def start(self):
+        self.btn.setEnabled(False)
+        self.btn.setText("Starting…")
+        from video import ffmpeg_home
+
+        def work():
+            try:
+                features.download_ffmpeg(ffmpeg_home(), lambda d, t: self.sig.progress.emit(d, t))
+                self.sig.finished.emit("")
+            except Exception as e:
+                self.sig.finished.emit(str(e) or "failed")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _progress(self, done, total):
+        self.btn.setText(f"{done * 100 // total}%" if total else human_size(done))
+
+    def _done(self, err):
+        if err:
+            self.btn.setEnabled(True)
+            self.btn.setText("Retry")
+            self.note.setText("Couldn't download the add-on. Check your internet and try again.")
+        else:
+            self.btn.hide()
+            self.note.setObjectName("Ok")
+            self.note.setText("HD video support is ready ✓")
+            self.note.style().polish(self.note)
+
 class AddDialog(QDialog):
     def __init__(self, parent, mgr, data=None):
         super().__init__(parent)
@@ -527,8 +577,7 @@ class AddDialog(QDialog):
             form.addRow(self.t_note)
         self.ff_note = None
         if not ffmpeg_path():
-            self.ff_note = label("ffmpeg not found — videos will download as a single file "
-                                 "(usually up to 720p).", "Warn", wrap=True)
+            self.ff_note = FFmpegGetter(self)
             form.addRow(self.ff_note)
 
         sch = mgr.settings
@@ -1071,7 +1120,7 @@ class SpeedDialog(QDialog):
 class CountdownDialog(QDialog):
     """'Shutting down in 60 s' with Cancel / Do it now."""
     WORDS = {"sleep": ("Going to sleep", "sleep"), "shutdown": ("Shutting down", "shut down"),
-             "quit": ("Closing EDENLOAD", "close")}
+             "quit": ("Closing MZ-DManager", "close")}
 
     def __init__(self, parent, action, why, seconds=60):
         super().__init__(parent)
@@ -1357,7 +1406,7 @@ class SettingsDialog(QDialog):
             "", label("STARTUP", "Section"), self.startup,
             "", label("CLIPBOARD", "Section"), self.clip, ind,
             label("Copy a link to a file (.exe, .zip, .mp4, .pdf…) or a magnet link anywhere, "
-                  "and EDENLOAD asks if you want to download it.", "Muted", True),
+                  "and MZ-DManager asks if you want to download it.", "Muted", True),
             "", label("BROWSER", "Section"), hbox(guide_btn))
 
         # ---------- Downloads
@@ -1453,7 +1502,7 @@ class SettingsDialog(QDialog):
         self.ask_files.setChecked(s.get("torrent_ask_files", True))
         self.seed = QCheckBox("Keep seeding torrents after they finish")
         self.seed.setChecked(s.get("seed_after", False))
-        self.assoc = QCheckBox("Open magnet links and .torrent files with EDENLOAD")
+        self.assoc = QCheckBox("Open magnet links and .torrent files with MZ-DManager")
         self.assoc.setChecked(s.get("torrent_assoc", False))
         self.assoc.setEnabled(sys.platform == "win32")
         torrents = page(self.ask_files, self.seed, self.assoc)
@@ -1467,7 +1516,7 @@ class SettingsDialog(QDialog):
         self.up_status = label(getattr(parent, "update_status", "") or "", "Muted", True)
         updates = page(form(("Installed version", label(features.VERSION))), self.auto_up,
                        hbox(check), self.up_status,
-                       label("When a new version is out, a bar appears at the top of EDENLOAD with an "
+                       label("When a new version is out, a bar appears at the top of MZ-DManager with an "
                              "“Update now” button. Your downloads and settings are kept.", "Muted", True))
 
         self.tabs = QTabWidget()
@@ -1514,7 +1563,7 @@ class SettingsDialog(QDialog):
             info = features.check_latest()
             if features.is_newer(info["version"]):
                 self.up_status.setText(f"Version {info['version']} is available — use “Update now” "
-                                       "in the bar at the top of EDENLOAD.")
+                                       "in the bar at the top of MZ-DManager.")
                 self.win._update_result = ("ok", info, True)
             else:
                 self.up_status.setText(f"You have the latest version ({features.VERSION}).")
@@ -1747,7 +1796,7 @@ class MainWindow(QMainWindow):
     def _build_tray_menu(self):
         menu = self.tray_menu
         menu.clear()
-        menu.addAction(icon("all", T("icon"), 16), "Open EDENLOAD", self.bring_front)
+        menu.addAction(icon("all", T("icon"), 16), "Open MZ-DManager", self.bring_front)
         menu.addAction(icon("add", T("icon"), 16), "Add URL…", self.add_dialog)
         menu.addAction(icon("magnet", T("teal"), 16), "Open torrent file…", self.open_torrent_files)
         menu.addAction(icon("link", T("icon"), 16), "Connect browser…", open_browser_guide)
@@ -1925,13 +1974,13 @@ class MainWindow(QMainWindow):
         if features.is_newer(data["version"]) and (manual or data["version"] != self.mgr.settings.get("skip_version")):
             self._update_info = data
             self.update_status = f"Version {data['version']} is available."
-            self._banner_text.setText(f"<b>EDENLOAD {data['version']}</b> is available — you have {features.VERSION}.")
+            self._banner_text.setText(f"<b>MZ-DManager {data['version']}</b> is available — you have {features.VERSION}.")
             self._banner_bar.hide()
             for b in (self._banner_go, self._banner_skip, self._banner_later):
                 b.show()
                 b.setEnabled(True)
             self.banner.show()
-            self.tray.showMessage(APP_NAME, f"EDENLOAD {data['version']} is available. Open EDENLOAD to update.",
+            self.tray.showMessage(APP_NAME, f"MZ-DManager {data['version']} is available. Open MZ-DManager to update.",
                                   QSystemTrayIcon.Information, 5000)
         else:
             self.update_status = f"You have the latest version ({features.VERSION})."
@@ -1948,7 +1997,7 @@ class MainWindow(QMainWindow):
         info = self._update_info
         if not info:
             return
-        self._banner_text.setText(f"Downloading EDENLOAD {info['version']}…")
+        self._banner_text.setText(f"Downloading MZ-DManager {info['version']}…")
         self._banner_bar.setValue(0)
         self._banner_bar.show()
         self._banner_go.setEnabled(False)
@@ -1957,7 +2006,7 @@ class MainWindow(QMainWindow):
         self._banner_later.clicked.disconnect()
         self._banner_later.clicked.connect(self._cancel_update)
         self._update_stop.clear()
-        dest = os.path.join(tempfile.gettempdir(), f"EDENLOAD-Setup-{info['version']}.exe")
+        dest = os.path.join(tempfile.gettempdir(), f"MZ-DManager-Setup-{info['version']}.exe")
 
         def prog(done, total):
             self._update_progress = (done, total, None)
@@ -1990,7 +2039,7 @@ class MainWindow(QMainWindow):
                 self._banner_bar.hide()
                 self._banner_go.setEnabled(True)
             return
-        self._banner_text.setText("Installing the update — EDENLOAD will reopen by itself…")
+        self._banner_text.setText("Installing the update — MZ-DManager will reopen by itself…")
         QApplication.processEvents()
         self.mgr.shutdown()
         try:
@@ -2141,7 +2190,7 @@ class MainWindow(QMainWindow):
         self._logo = logo
         logo.setPixmap(QPixmap(app_icon_path()).scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         h.addWidget(logo)
-        h.addWidget(label("EDENLOAD", "HeaderBrand"))
+        h.addWidget(label("MZ-DManager", "HeaderBrand"))
         h.addSpacing(18)
         mb = QMenuBar()
         mb.setObjectName("MainMenu")
@@ -2174,7 +2223,7 @@ class MainWindow(QMainWindow):
             m.addAction(icon("resume_all", c, 16), "Resume all", self.mgr.resume_all)
             m.addAction(icon("stop_all", c, 16), "Stop all", self.mgr.pause_all)
             m.addSeparator()
-            m.addAction("Quit EDENLOAD", self.quit_app)
+            m.addAction("Quit MZ-DManager", self.quit_app)
         elif name == "File":
             for text, ic, slot, ok in (
                     ("Open file", "open", self.open_selected, any(i.status == "done" for i in sel)),
@@ -2212,8 +2261,8 @@ class MainWindow(QMainWindow):
             m.addAction(icon("link", c, 16), "Connect browser…", open_browser_guide)
             m.addAction(icon("update", c, 16), "Check for updates", lambda: self.check_updates(manual=True))
             m.addSeparator()
-            m.addAction(f"About EDENLOAD {features.VERSION}", lambda: QMessageBox.about(
-                self, APP_NAME, f"<b>EDENLOAD {features.VERSION}</b><br>Download manager for files, videos "
+            m.addAction(f"About MZ-DManager {features.VERSION}", lambda: QMessageBox.about(
+                self, APP_NAME, f"<b>MZ-DManager {features.VERSION}</b><br>Download manager for files, videos "
                                 "and torrents."))
 
     def _set_theme(self, key):
@@ -2401,7 +2450,7 @@ class MainWindow(QMainWindow):
         self.speed_menu.aboutToShow.connect(lambda: self._fill_speed_menu(self.speed_menu))
         sp.setMenu(self.speed_menu)
         wd = btn("when_done", "When done", "power", None,
-                 "Sleep, shut down or close EDENLOAD when all downloads finish")
+                 "Sleep, shut down or close MZ-DManager when all downloads finish")
         wd.setPopupMode(QToolButton.InstantPopup)
         self.when_menu = QMenu(wd)
         self.when_menu.aboutToShow.connect(lambda: self._fill_when_menu(self.when_menu))
@@ -3202,7 +3251,7 @@ def shots(out):
     w.resize(1360, 780)
     w.show()
     w._update_info = {"version": "1.7", "url": "", "page": "", "notes": "", "size": 0}
-    w._banner_text.setText(f"<b>EDENLOAD 1.7</b> is available — you have {features.VERSION}.")
+    w._banner_text.setText(f"<b>MZ-DManager 1.7</b> is available — you have {features.VERSION}.")
     w.banner.show()
     w.table.selectRow(2)
     w._checked.update({mgr.items[1].id, mgr.items[3].id})
@@ -3331,7 +3380,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("EDENLOAD.DownloadManager")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MZ-DManager.DownloadManager")
         except Exception:
             pass
     app = QApplication(sys.argv)

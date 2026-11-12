@@ -15,6 +15,6 @@ chrome.runtime.sendMessage({ action: "status" }, (res) => {
   const st = document.getElementById("st");
   const text = document.getElementById("sttext");
   if (res && res.alive && res.capture === false) { text.textContent = "Connected — catching is off in the app"; st.className = "status paused"; }
-  else if (res && res.alive) { text.textContent = "Connected to EDENLOAD"; st.className = "status on"; }
+  else if (res && res.alive) { text.textContent = "Connected to MZ-DManager"; st.className = "status on"; }
   else { text.textContent = "App is not running"; st.className = "status off"; }
 });

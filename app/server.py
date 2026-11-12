@@ -46,7 +46,7 @@ def make_server(inbox, capture=lambda: True):
 
         def do_GET(self):
             if self.path.startswith("/ping"):
-                return self._send(200, {"app": "EDENLOAD", "version": VERSION, "capture": bool(capture())})
+                return self._send(200, {"app": "MZ-DManager", "version": VERSION, "capture": bool(capture())})
             self._send(404, {})
 
         def do_POST(self):

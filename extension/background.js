@@ -1,4 +1,4 @@
-// EDENLOAD — browser bridge
+// MZ-DManager — browser bridge
 const APP = "http://127.0.0.1:9614";
 const bypass = new Set(); // URLs the browser should download itself (app refused them)
 
@@ -99,8 +99,8 @@ chrome.downloads.onCreated.addListener(async (item) => {
 // 2) Right-click menus
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: "edm-link", title: "Download link with EDENLOAD", contexts: ["link", "image", "audio"] });
-    chrome.contextMenus.create({ id: "edm-video", title: "Download video with EDENLOAD", contexts: ["page", "video", "link"] });
+    chrome.contextMenus.create({ id: "edm-link", title: "Download link with MZ-DManager", contexts: ["link", "image", "audio"] });
+    chrome.contextMenus.create({ id: "edm-video", title: "Download video with MZ-DManager", contexts: ["page", "video", "link"] });
   });
 });
 
