@@ -2215,8 +2215,13 @@ class MainWindow(QMainWindow):
         try:
             features.run_installer(result)
         except Exception as e:
-            QMessageBox.warning(self, APP_NAME, f"Couldn't start the installer:\n{e}")
-            return
+            QMessageBox.warning(self, APP_NAME, f"The update didn't start:\n{e}\n\n"
+                                                "MZ-DManager will restart. You can update later from More → Check for updates.")
+            try:
+                subprocess.Popen([sys.executable] + ([] if getattr(sys, "frozen", False) else [os.path.abspath(__file__)]),
+                                 close_fds=True)
+            except OSError:
+                pass
         self.quit_app()
 
     # ---- speed limits ----
@@ -3456,7 +3461,9 @@ def open_browser_guide():
     base = install_dir()
     guide = next((p for p in (os.path.join(base, "guide.html"), os.path.join(base, "installer", "guide.html"))
                   if os.path.isfile(p)), None)
-    ext = os.path.join(base, "extension")
+    ext = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "MZ-DManager", "extension")
+    if not os.path.isdir(ext):
+        ext = os.path.join(base, "extension")
     if os.path.isdir(ext):
         open_path(ext)
     if guide:

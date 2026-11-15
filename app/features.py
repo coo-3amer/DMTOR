@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-VERSION = "2.5"
+VERSION = "2.6"
 REPO = "coo-3amer/DMTOR"   # GitHub repository (its name stays)
 
 ACTIONS = [("none", "Do nothing"), ("sleep", "Put the computer to sleep"),
@@ -235,13 +235,22 @@ def install_key():
 
 def run_installer(path):
     """Start the new Setup; it closes MZ-DManager, updates it and opens it again.
-    With a saved install password it runs silently; without one the Setup shows its password page."""
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    args = [path, "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"]
+    MZ-DManager lives in Program Files, so Windows asks for admin approval (UAC) first.
+    With a saved install password it runs silently; without one the Setup shows its password page.
+    Raises OSError if the Setup couldn't start (for example the UAC prompt was declined)."""
+    args = ["/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"]
     key = install_key()
     if key:
-        args.append("/PASSWORD=" + key)
-    subprocess.Popen(args, creationflags=flags, close_fds=True)
+        args.append('/PASSWORD="' + key.replace('"', '') + '"')
+    params = " ".join(args)
+    if sys.platform == "win32":
+        import ctypes
+        rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", path, params, None, 1)
+        if rc <= 32:
+            raise OSError("Admin approval was not given" if rc == 5 else f"ShellExecute error {rc}")
+    else:
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen([path] + args, creationflags=flags, close_fds=True)
 
 
 def update_due(settings, every_hours=12):

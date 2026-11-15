@@ -16,13 +16,14 @@ AppName=MZ-DManager
 AppVersion={#AppVersion}
 AppVerName=MZ-DManager {#AppVersion}
 AppPublisher=MZ-DManager
-DefaultDirName={localappdata}\Programs\MZ-DManager
+DefaultDirName={autopf}\MZ-DManager
 DefaultGroupName=MZ-DManager
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 UsePreviousAppDir=no
 UsePreviousGroup=no
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
+UsedUserAreasWarning=no
 OutputDir=..\output
 OutputBaseFilename=MZ-DManager-Setup
 SetupIconFile=..\assets\app.ico
@@ -44,6 +45,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "startup"; Description: "Start MZ-DManager with Windows (runs next to the clock)"; GroupDescription: "Options:"
 
 [InstallDelete]
+; the old per-user copy (before MZ-DManager moved to Program Files). Its "extension" folder stays:
+; Chrome / Edge load the extension from there, so it keeps working without reconnecting.
+Type: filesandordirs; Name: "{localappdata}\Programs\MZ-DManager\_internal"
+Type: files; Name: "{localappdata}\Programs\MZ-DManager\MZ-DManager.exe"
+Type: files; Name: "{localappdata}\Programs\MZ-DManager\unins*.*"
+Type: files; Name: "{localappdata}\Programs\MZ-DManager\guide.html"
+Type: files; Name: "{localappdata}\Programs\MZ-DManager\icon.png"
+Type: filesandordirs; Name: "{userprograms}\MZ-DManager"
+Type: files; Name: "{userdesktop}\MZ-DManager.lnk"
 ; clean up the previous names (EDENLOAD, DMTOR)
 Type: filesandordirs; Name: "{localappdata}\Programs\EDENLOAD"
 Type: filesandordirs; Name: "{userprograms}\EDENLOAD"
@@ -54,7 +64,8 @@ Type: files; Name: "{userdesktop}\DMTOR.lnk"
 
 [Files]
 Source: "..\dist\MZ-DManager\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\extension\*"; DestDir: "{app}\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
+; the browser extension goes to a fixed per-user folder, so Chrome / Edge never lose it on updates
+Source: "..\extension\*"; DestDir: "{localappdata}\Programs\MZ-DManager\extension"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "guide.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\assets\app.png"; DestDir: "{app}"; DestName: "icon.png"; Flags: ignoreversion
 
@@ -68,17 +79,18 @@ Name: "{autodesktop}\MZ-DManager"; Filename: "{app}\MZ-DManager.exe"; Tasks: des
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MZ-DManager"; \
   ValueData: """{app}\MZ-DManager.exe"" --tray"; Tasks: startup; Flags: uninsdeletevalue
 
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\{{6F0C2B7E-6C2E-4C1B-9E0B-5D4D9A2F7A31}_is1"; Flags: deletekey noerror
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "DMTOR"; Flags: deletevalue
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "EDENLOAD"; Flags: deletevalue
 
 [Run]
 ; create Music, Videos, Programs, Documents, Torrents and Others in the Downloads folder
-Filename: "{app}\MZ-DManager.exe"; Parameters: "--init-folders"; Flags: runhidden waituntilterminated
+Filename: "{app}\MZ-DManager.exe"; Parameters: "--init-folders"; Flags: runhidden waituntilterminated runasoriginaluser
 Filename: "{app}\MZ-DManager.exe"; Parameters: "--guide"; Description: "Connect Chrome / Edge now (opens a short guide)"; \
-  Flags: postinstall nowait skipifsilent
-Filename: "{app}\MZ-DManager.exe"; Description: "Open MZ-DManager"; Flags: postinstall nowait skipifsilent
+  Flags: postinstall nowait skipifsilent runasoriginaluser
+Filename: "{app}\MZ-DManager.exe"; Description: "Open MZ-DManager"; Flags: postinstall nowait skipifsilent runasoriginaluser
 ; after an automatic (silent) update, reopen MZ-DManager
-Filename: "{app}\MZ-DManager.exe"; Flags: nowait; Check: WizardSilent
+Filename: "{app}\MZ-DManager.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /F /IM MZ-DManager.exe"; Flags: runhidden; RunOnceId: "KillApp"
