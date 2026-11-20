@@ -1,0 +1,102 @@
+name: Build MZ-DManager Lite (Windows 7)
+
+on:
+  push:
+    branches: [win7]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 3.8 is the last one that runs on Windows 7. 32-bit, so it works on 32- and 64-bit Windows.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+          architecture: x86
+
+      - name: Install libraries
+        run: |
+          python -m pip install --upgrade "pip<25"
+          python -m pip install requests "pyinstaller==5.13.2"
+
+      - name: Build (PyInstaller)
+        run: >
+          pyinstaller --noconfirm --clean --onedir --windowed
+          --name MZ-DManager-Lite --icon assets/app.ico
+          --add-data "assets;assets"
+          --paths app
+          --exclude-module unittest --exclude-module pydoc --exclude-module lib2to3 --exclude-module xmlrpc
+          --exclude-module sqlite3 --exclude-module pydoc_data --exclude-module distutils --exclude-module setuptools
+          --exclude-module PIL --exclude-module numpy
+          app/main.py
+
+      - name: Trim and add the Windows 7 runtime
+        shell: pwsh
+        run: |
+          $d = "dist/MZ-DManager-Lite"
+          foreach ($junk in @("tcl/tzdata", "tcl/msgs", "tk/msgs", "tk/demos", "tk/images", "tcl8/8.4", "tcl8/8.5")) {
+            Get-ChildItem $d -Recurse -Directory -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName.Replace('\','/') -like "*/$junk" } | Remove-Item -Recurse -Force
+          }
+          # Universal C runtime next to the exe, for Windows 7 PCs without update KB2999226
+          $ucrt = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Redist" -Recurse -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match 'ucrt\\DLLs\\x86$' } | Select-Object -First 1
+          if ($ucrt) { Copy-Item "$($ucrt.FullName)\*.dll" $d -Force; Write-Host "UCRT from $($ucrt.FullName)" }
+          else { Write-Host "UCRT redist not found" }
+          $size = (Get-ChildItem $d -Recurse | Measure-Object Length -Sum).Sum
+          Write-Host ("App folder: {0:N1} MB" -f ($size / 1MB))
+
+      - name: Self-test the exe
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/MZ-DManager-Lite/MZ-DManager-Lite.exe -ArgumentList "--selftest", "selftest.txt" -PassThru -Wait
+          Get-Content selftest.txt | Out-Host
+          if ($p.ExitCode -ne 0) { throw "self-test failed" }
+
+      - name: Screenshots
+        shell: pwsh
+        run: |
+          python -m pip install pillow
+          python app/main.py --shots shots
+          Get-ChildItem shots | Select-Object Name, Length | Out-Host
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        env:
+          INSTALLER_PASSWORD: ${{ secrets.INSTALLER_PASSWORD }}
+        run: |
+          $ver = (Select-String -Path app/version.py -Pattern 'VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          "VER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc "/DAppVersion=$ver.0" installer/MZ-DManager-Lite.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          $s = (Get-Item output/MZ-DManager-Lite-Setup.exe).Length
+          Write-Host ("Setup size: {0:N1} MB" -f ($s / 1MB))
+
+      # Test builds go to 'download-win7-test'; builds marked [release] go to 'download-win7',
+      # which is where installed copies look for updates.
+      - name: Publish
+        shell: pwsh
+        run: |
+          $branch = if ("${{ github.event.head_commit.message }}" -like "*[[]release]*") { "download-win7" } else { "download-win7-test" }
+          New-Item -ItemType Directory -Force pub | Out-Null
+          Copy-Item output/MZ-DManager-Lite-Setup.exe pub/
+          Copy-Item selftest.txt pub/
+          if (Test-Path shots) { Copy-Item -Recurse shots pub/shots }
+          Set-Content pub/version.txt $env:VER -NoNewline
+          Set-Location pub
+          git init -q -b $branch
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "MZ-DManager Lite $env:VER"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" $branch
+          Write-Host "published to $branch"
