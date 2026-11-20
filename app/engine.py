@@ -108,9 +108,9 @@ class Manager:
         return FileDownload(url, save_dir or self.settings["save_dir"], name, headers,
                             self.settings["segments"], self.settings["categorize"])
 
-    def new_video(self, url, quality="best", title="", save_dir=None):
+    def new_video(self, url, quality="best", title="", save_dir=None, cookie_list=None):
         return VideoDownload(url, save_dir or self.settings["save_dir"], quality, title,
-                             self.settings["categorize"])
+                             self.settings["categorize"], cookie_list=cookie_list)
 
     def add(self, item, start=True):
         item.status = "queued" if start else "paused"

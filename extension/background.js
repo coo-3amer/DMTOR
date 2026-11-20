@@ -58,6 +58,19 @@ async function sendToApp(payload) {
   }
 }
 
+// Your cookies for a video site (sent with the video so YouTube treats it like your browser)
+async function cookieList(url) {
+  try {
+    let host = new URL(url).hostname.replace(/^www\./, "");
+    let base = host.split(".").slice(-2).join(".");
+    if (base === "youtu.be") base = "youtube.com";
+    const cs = await chrome.cookies.getAll({ domain: base });
+    return cs.map((c) => ({ d: c.domain, p: c.path, s: c.secure, e: Math.floor(c.expirationDate || 0), n: c.name, v: c.value }));
+  } catch (e) {
+    return [];
+  }
+}
+
 function baseName(p) {
   return (p || "").split(/[\\/]/).pop();
 }
@@ -106,7 +119,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "mzl-video") {
     let vurl = info.linkUrl || info.pageUrl;
     if (info.srcUrl && /^https?:/i.test(info.srcUrl) && !info.linkUrl) vurl = info.pageUrl;
-    return sendToApp({ type: "video", url: vurl, referrer: info.pageUrl || "", title: tab ? tab.title : "" });
+    return sendToApp({ type: "video", url: vurl, referrer: info.pageUrl || "", title: tab ? tab.title : "", cookieList: await cookieList(vurl) });
   }
   const url = info.linkUrl || info.srcUrl;
   if (!url || !/^https?:/i.test(url)) return;
@@ -119,7 +132,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     if (msg.action === "video") {
       const alive = await appAlive();
       if (!alive) return reply({ ok: false, reason: "app" });
-      reply({ ok: await sendToApp({ type: "video", url: msg.url, referrer: msg.url, title: msg.title || "" }) });
+      reply({ ok: await sendToApp({ type: "video", url: msg.url, referrer: msg.url, title: msg.title || "", cookieList: await cookieList(msg.url) }) });
     } else if (msg.action === "click") {
       try { await chrome.storage.session.set({ lastClick: Date.now() }); } catch (e) {}
       reply({ ok: true });

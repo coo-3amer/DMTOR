@@ -154,6 +154,27 @@ def update_ytdlp():
 
 
 # ---------------------------------------------------------------- running yt-dlp
+def write_cookies(cookie_list, key):
+    """Browser cookies (from the extension) → a cookies.txt file yt-dlp can read. Returns its path or ''."""
+    if not cookie_list:
+        return ""
+    d = os.path.join(os.path.dirname(tools_dir()), "cookies")
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, key + ".txt")
+    lines = ["# Netscape HTTP Cookie File"]
+    for c in cookie_list:
+        try:
+            dom = str(c.get("d", ""))
+            lines.append("\t".join([dom, "TRUE" if dom.startswith(".") else "FALSE", str(c.get("p", "/")),
+                                    "TRUE" if c.get("s") else "FALSE", str(int(c.get("e") or 0)),
+                                    str(c.get("n", "")), str(c.get("v", ""))]))
+        except Exception:
+            continue
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return path
+
+
 def base_args():
     a = [ytdlp_path(), "--no-config", "--no-playlist", "--windows-filenames", "--no-colors",
          "--remote-components", "ejs:github"]
@@ -175,12 +196,13 @@ def fmt_for(quality):
     return f"bv*[height<={quality}][ext=mp4]+ba[ext=m4a]/bv*[height<={quality}]+ba/b[height<={quality}]/b"
 
 
-def probe(url, timeout=90):
+def probe(url, timeout=90, cookie_list=None):
     """{'kind': 'video', 'name', 'duration', 'site'} or {'error'}."""
     if not ready():
         return {"error": "addon"}
     try:
-        p = subprocess.run(base_args() + ["-J", "--skip-download", url], capture_output=True, timeout=timeout,
+        ck = write_cookies(cookie_list, "probe")
+        p = subprocess.run(base_args() + (["--cookies", ck] if ck else []) + ["-J", "--skip-download", url], capture_output=True, timeout=timeout,
                            creationflags=NO_WINDOW)
         if p.returncode != 0:
             err = (p.stderr or b"").decode("utf-8", "replace").strip().splitlines()
@@ -198,8 +220,9 @@ def probe(url, timeout=90):
 class VideoDownload(Item):
     kind = "video"
 
-    def __init__(self, url, save_dir, quality="best", title="", categorize=True, id=None):
+    def __init__(self, url, save_dir, quality="best", title="", categorize=True, id=None, cookie_list=None):
         super().__init__(id)
+        self.cookie_list = cookie_list or []
         self.url = url
         self.save_dir = save_dir
         self.quality = quality
@@ -228,6 +251,9 @@ class VideoDownload(Item):
                               "--progress-template", "download:MZP %(progress.downloaded_bytes)s "
                                                      "%(progress.total_bytes)s %(progress.total_bytes_estimate)s",
                               "--print", "after_move:MZF %(filepath)s", "--no-simulate", "-N", "4"]
+        ck = write_cookies(self.cookie_list, self.id)
+        if ck:
+            args += ["--cookies", ck]
         if self.quality != "audio" and ffmpeg_path():
             args += ["--merge-output-format", "mp4"]
         if self.limit or core.GLOBAL_LIMIT.rate:
@@ -277,6 +303,12 @@ class VideoDownload(Item):
             return
         rc = self._proc.wait()
         if rc == 0 and (not self.path or os.path.isfile(self.path)):
+            self.cookie_list = []                 # not kept once the video is saved
+            try:
+                if ck:
+                    os.remove(ck)
+            except OSError:
+                pass
             self._done = self.total = max(self.total, self._done)
             self.status = "done"
             self.speed = 0.0
@@ -313,14 +345,14 @@ class VideoDownload(Item):
 
     def to_dict(self):
         d = {k: getattr(self, k) for k in ("id", "kind", "url", "save_dir", "quality", "name", "categorize",
-                                           "total", "path", "status", "error", "added", "limit")}
+                                           "total", "path", "status", "error", "added", "limit", "cookie_list")}
         d["done"] = self._done
         return d
 
     @classmethod
     def from_dict(cls, d):
         it = cls(d["url"], d["save_dir"], d.get("quality", "best"), d.get("name", ""), d.get("categorize", True),
-                 id=d["id"])
+                 id=d["id"], cookie_list=d.get("cookie_list"))
         for k in ("total", "path", "status", "error", "added"):
             if k in d:
                 setattr(it, k, d[k])

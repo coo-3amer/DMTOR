@@ -262,6 +262,7 @@ class AddDialog(tk.Toplevel):
         if payload.get("userAgent"):
             self.headers["User-Agent"] = payload["userAgent"]
         self.hint_size = int(payload.get("size") or 0)
+        self.cookie_list = payload.get("cookieList") or []
 
         lbl(f, "Link", muted=True).grid(row=2, column=0, sticky="w", padx=(0, 12), pady=5)
         self.url_entry = entry(f, self.url, 58)
@@ -373,7 +374,8 @@ class AddDialog(tk.Toplevel):
 
         def work():
             try:
-                res = video.probe(url) if is_video else probe.probe_file(url, self.headers)
+                res = video.probe(url, cookie_list=self.cookie_list) if is_video else \
+                    probe.probe_file(url, self.headers)
             except Exception as e:
                 res = {"error": str(e)[:200]}
             self.app.call(lambda: self.winfo_exists() and gen == self._gen and self._show(res))
@@ -457,7 +459,8 @@ class AddDialog(tk.Toplevel):
                                     parent=self)
                 return
             q = dict((t, k) for k, t in video.QUALITIES).get(self.quality.get(), "best")
-            it = self.mgr.new_video(url, q, self.name.get().strip(), None if default else folder)
+            it = self.mgr.new_video(url, q, self.name.get().strip(), None if default else folder,
+                                    cookie_list=self.cookie_list)
         else:
             it = self.mgr.new_file(url, self.name.get().strip(), self.headers, None if default else folder)
         if not default:
