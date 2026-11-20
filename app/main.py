@@ -437,7 +437,7 @@ class SettingsDialog(tk.Toplevel):
         Btn(f, "Check now", lambda: app.check_updates(manual=True), padx=10, pady=4).grid(row=r, column=2,
                                                                                          sticky="e", pady=(4, 0))
         r += 1
-        lbl(f, f"{APP_NAME} {VERSION} — Windows 7 edition. Files only.", muted=True).grid(
+        lbl(f, f"{APP_NAME} {VERSION} — Windows 7 edition. Closing the window keeps it next to the clock.", muted=True).grid(
             row=r, column=0, columnspan=3, sticky="w", pady=(12, 0))
         r += 1
         row = tk.Frame(f, bg=C["bg"])
@@ -478,6 +478,7 @@ class SettingsDialog(tk.Toplevel):
         self.mgr.ensure_folders()
         self.mgr.save()
         self.app.refresh()
+        self.app.tray.refresh_menu()
         self.destroy()
 
 
@@ -513,6 +514,69 @@ class Confirm(tk.Toplevel):
         self.destroy()
 
 
+# ---------------------------------------------------------------- tray icon (next to the clock)
+class Tray:
+    """Icon next to the clock: keeps the app running (and catching browser downloads) when the window is closed."""
+
+    def __init__(self, app):
+        self.app = app
+        self.icon = None
+        try:
+            import pystray
+            from PIL import Image
+        except Exception:
+            return
+        img = Image.open(resource("assets", "app.png"))
+        M = pystray.MenuItem
+        menu = pystray.Menu(
+            M("Open MZ-DManager Lite", lambda: app.call(app.show), default=True),
+            M("Add download…", lambda: app.call(lambda: (app.show(), app.add_dialog()))),
+            pystray.Menu.SEPARATOR,
+            M("Catch browser downloads", lambda: app.call(app.toggle_capture),
+              checked=lambda item: app.mgr.settings.get("capture", True)),
+            M("Limit speed", lambda: app.call(app.toggle_limit),
+              checked=lambda item: bool(app.mgr.settings.get("limit_on"))),
+            M("Resume all", lambda: app.call(lambda: app._all("resume", everything=True))),
+            M("Stop all", lambda: app.call(lambda: app._all("stop", everything=True))),
+            pystray.Menu.SEPARATOR,
+            M("Exit", lambda: app.call(app.quit)))
+        self.icon = pystray.Icon("MZ-DManager Lite", img, APP_NAME, menu)
+        self.icon.run_detached()
+
+    @property
+    def ok(self):
+        return self.icon is not None
+
+    def tip(self, text):
+        if self.icon and getattr(self, "_tip", None) != text:
+            self._tip = text
+            try:
+                self.icon.title = text[:120]
+            except Exception:
+                pass
+
+    def notify(self, text, title=APP_NAME):
+        if self.icon:
+            try:
+                self.icon.notify(text, title)
+            except Exception:
+                pass
+
+    def refresh_menu(self):
+        if self.icon:
+            try:
+                self.icon.update_menu()
+            except Exception:
+                pass
+
+    def stop(self):
+        if self.icon:
+            try:
+                self.icon.stop()
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------- main window
 class App:
     def __init__(self, root, mgr, inbox, minimized=False):
@@ -536,8 +600,14 @@ class App:
         root.bind("<Control-a>", lambda e: self.select_all())
         root.bind("<Control-n>", lambda e: self.add_dialog())
         root.bind("<Delete>", lambda e: self.delete_selected())
+        self.tray = Tray(self)
+        self._told_tray = False
+        self._prev = {i.id: i.status for i in mgr.items}
         if minimized:
-            root.iconify()
+            if self.tray.ok:
+                root.withdraw()
+            else:
+                root.iconify()
         self.refresh()
         self._loop()
         self._pump()
@@ -771,6 +841,16 @@ class App:
                     break
                 self._incoming(msg)
             self.refresh()
+            for it in self.mgr.items:
+                before = self._prev.get(it.id)
+                if before and before != "done" and it.status == "done":
+                    self.tray.notify(it.name or it.url, "Download complete")
+                elif before and before != "error" and it.status == "error":
+                    self.tray.notify((it.name or it.url) + "\n" + (it.error or ""), "Download failed")
+            self._prev = {i.id: i.status for i in self.mgr.items}
+            active = [i for i in self.mgr.items if i.status == "downloading"]
+            sp = sum(i.speed for i in active)
+            self.tray.tip(f"{APP_NAME}\n{len(active)} downloading · {human_size(sp)}/s" if active else APP_NAME)
             if int(time.time()) % 10 == 0:
                 self._update_disk()
         except Exception:
@@ -813,8 +893,8 @@ class App:
     def add_dialog(self, payload=None):
         AddDialog(self, payload)
 
-    def _all(self, what):
-        for it in self._visible():
+    def _all(self, what, everything=False):
+        for it in (self.mgr.items if everything else self._visible()):
             if what == "resume" and it.status in ("paused", "error"):
                 it.resume()
             elif what == "stop" and it.status in ("downloading", "queued", "pausing"):
@@ -915,6 +995,7 @@ class App:
         s["capture"] = not s.get("capture", True)
         self.mgr.save()
         self.refresh()
+        self.tray.refresh_menu()
 
     def toggle_limit(self):
         s = self.mgr.settings
@@ -922,6 +1003,7 @@ class App:
         self.mgr.apply_limits()
         self.mgr.save()
         self.refresh()
+        self.tray.refresh_menu()
 
     # ---- updates ----
     def check_updates(self, manual=False):
@@ -982,6 +1064,17 @@ class App:
 
     # ---- closing ----
     def on_close(self):
+        if self.tray.ok:
+            try:
+                self.mgr.settings["geometry"] = self.root.geometry()
+            except tk.TclError:
+                pass
+            self.root.withdraw()
+            if not self._told_tray:
+                self._told_tray = True
+                self.tray.notify("Still running next to the clock and catching browser downloads.\n"
+                                 "Right-click the icon → Exit to close it.")
+            return
         active = any(i.status in ("downloading", "queued") for i in self.mgr.items)
         if active and not messagebox.askyesno(
                 APP_NAME, "Downloads are still running.\nStop them and close MZ-DManager Lite?\n\n"
@@ -995,6 +1088,7 @@ class App:
         except tk.TclError:
             pass
         self.mgr.shutdown()
+        self.tray.stop()
         self.root.destroy()
 
 
@@ -1006,6 +1100,9 @@ def selftest(out):
         root = tk.Tk()
         root.withdraw()
         lines.append("tk " + str(tk.TkVersion))
+        import pystray  # noqa: F401
+        from PIL import Image  # noqa: F401
+        lines.append("tray ok")
         root.destroy()
         import tempfile
         d = tempfile.mkdtemp()
@@ -1079,6 +1176,7 @@ def shots(out):
     s = SettingsDialog(app)
     save(s, "lite_settings")
     s.destroy()
+    app.tray.stop()
     root.destroy()
     return 0
 

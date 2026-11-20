@@ -24,7 +24,7 @@ jobs:
       - name: Install libraries
         run: |
           python -m pip install --upgrade "pip<25"
-          python -m pip install requests "pyinstaller==5.13.2"
+          python -m pip install requests pystray pillow "pyinstaller==5.13.2"
 
       - name: Build (PyInstaller)
         run: >
@@ -34,7 +34,8 @@ jobs:
           --paths app
           --exclude-module unittest --exclude-module pydoc --exclude-module lib2to3 --exclude-module xmlrpc
           --exclude-module sqlite3 --exclude-module pydoc_data --exclude-module distutils --exclude-module setuptools
-          --exclude-module PIL --exclude-module numpy
+          --exclude-module numpy --exclude-module PIL.ImageQt --exclude-module PIL.ImageTk
+          --hidden-import pystray._win32
           app/main.py
 
       - name: Trim and add the Windows 7 runtime
@@ -63,7 +64,6 @@ jobs:
       - name: Screenshots
         shell: pwsh
         run: |
-          python -m pip install pillow
           python app/main.py --shots shots
           Get-ChildItem shots | Select-Object Name, Length | Out-Host
 
