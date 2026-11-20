@@ -330,10 +330,7 @@ class AddDialog(tk.Toplevel):
                 res = probe.probe_file(url, self.headers)
             except Exception as e:
                 res = {"error": str(e)[:200]}
-            try:
-                self.after(0, lambda: gen == self._gen and self._show(res))
-            except (RuntimeError, tk.TclError):
-                pass
+            self.app.call(lambda: self.winfo_exists() and gen == self._gen and self._show(res))
         threading.Thread(target=work, daemon=True).start()
 
     def _show(self, info):
@@ -520,6 +517,7 @@ class Confirm(tk.Toplevel):
 class App:
     def __init__(self, root, mgr, inbox, minimized=False):
         self.root, self.mgr, self.inbox = root, mgr, inbox
+        self._calls = queue.Queue()      # work finished in background threads, run on the UI thread
         self._filter = "all"
         self._bars = {}
         self._rows = []
@@ -542,6 +540,7 @@ class App:
             root.iconify()
         self.refresh()
         self._loop()
+        self._pump()
         if mgr.settings.get("auto_update", True) and time.time() - mgr.settings.get("last_update_check", 0) > 6 * 3600:
             root.after(4000, self.check_updates)
 
@@ -743,6 +742,25 @@ class App:
         self.disk_lbl.configure(text=f"{human_size(free)} free" if free is not None else "")
 
     # ---- loop ----
+    def call(self, fn):
+        """Run fn on the UI thread (safe to use from any thread)."""
+        self._calls.put(fn)
+
+    def _pump(self):
+        while True:
+            try:
+                fn = self._calls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                fn()
+            except Exception:
+                pass
+        try:
+            self.root.after(100, self._pump)
+        except tk.TclError:
+            pass
+
     def _loop(self):
         try:
             self.mgr.tick()
@@ -913,7 +931,7 @@ class App:
                 err = None
             except Exception as e:
                 info, err = None, str(e)
-            self.root.after(0, lambda: self._update_result(info, err, manual))
+            self.call(lambda: self._update_result(info, err, manual))
         threading.Thread(target=work, daemon=True).start()
 
     def _update_result(self, info, err, manual):
@@ -941,13 +959,14 @@ class App:
 
         def work():
             try:
-                path = updater.download(info["url"], lambda d, t: self.root.after(
-                    0, lambda: self.update_text.configure(
+                path = updater.download(info["url"], lambda d, t: self.call(
+                    lambda: self.update_text.configure(
                         text=f"Downloading the update… {100 * d // t}%" if t else "Downloading the update…")))
-                self.root.after(0, lambda: self._run_update(path))
+                self.call(lambda: self._run_update(path))
             except Exception as e:
-                self.root.after(0, lambda: (messagebox.showwarning(APP_NAME, f"Update failed:\n{e}"),
-                                            self.update_btn.set_enabled(True)))
+                err = str(e)
+                self.call(lambda: (messagebox.showwarning(APP_NAME, f"Update failed:\n{err}"),
+                                   self.update_btn.set_enabled(True)))
         threading.Thread(target=work, daemon=True).start()
 
     def _run_update(self, path):
