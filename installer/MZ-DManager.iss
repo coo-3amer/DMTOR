@@ -7,6 +7,8 @@
 #define InstallPwd GetEnv("INSTALLER_PASSWORD")
 
 [Setup]
+; Qt 6 and Python 3.13 need Windows 10 (1809) or newer: say so clearly instead of a missing-DLL error
+MinVersion=10.0.17763
 #if InstallPwd != ""
 Password={#InstallPwd}
 Encryption=yes
