@@ -744,7 +744,7 @@ class AddDialog(QDialog):
             cat = category_of(self.name.text().strip() or name)
         dest = core.resolve_folder(folder, cat)
         parts = os.path.normpath(dest).split(os.sep)
-        details.append(tr("Saves to") + " " + ("…" + os.sep + os.sep.join(parts[-2:]) if len(parts) > 2 else dest))
+        details.append(tr("Saves to") + " " + i18n.ltr("…" + os.sep + os.sep.join(parts[-2:]) if len(parts) > 2 else dest))
         if free_txt:
             details.append(free_txt)
         if size and free is not None and size > free:
@@ -1677,9 +1677,9 @@ def added_text(ts):
     d = _dt.datetime.fromtimestamp(ts or 0).date()
     today = _dt.date.today()
     if d == today:
-        return "Today"
+        return tr("Today")
     if d == today - _dt.timedelta(days=1):
-        return "Yesterday"
+        return tr("Yesterday")
     return d.strftime("%Y/%m/%d")
 
 
@@ -2487,7 +2487,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction(icon("link", c, 16), "Connect browser…", open_browser_guide)
         m.addAction(icon("update", c, 16), "Check for updates", lambda: self.check_updates(manual=True))
-        m.addAction(f"About MZ-DManager {features.VERSION}", lambda: QMessageBox.about(
+        m.addAction(tr("About MZ-DManager {v}").format(v=features.VERSION), lambda: QMessageBox.about(
             self, APP_NAME, f"<b>MZ-DManager {features.VERSION}</b><br>Download manager for files, videos "
                             "and torrents."))
         m.addSeparator()
@@ -2960,7 +2960,7 @@ class MainWindow(QMainWindow):
             elif it.kind == "torrent" and it.phase in ("metadata", "checking"):
                 parts.append(tr("Getting info…" if it.phase == "metadata" else "Checking…"))
             else:
-                parts.append(f"{100 * frac:.0f}%" if total else human_size(done))
+                parts.append(i18n.ltr(f"{100 * frac:.0f}%" if total else human_size(done)))
                 if total:
                     parts.append(tr("{a} of {b}").format(a=human_size(done), b=human_size(total)))
                 if it.speed:
@@ -2995,7 +2995,7 @@ class MainWindow(QMainWindow):
         return {"name": it.name or it.url, "meta": "  ·  ".join(parts), "meta_color": meta_color,
                 "status": st, "frac": frac, "cat": cat,
                 "icon": CATEGORY_ICON.get(cat, CATEGORY_ICON["Other"])[0],
-                "size": human_size(total) if total else "", "main": main, "checked": it.id in self._checked}
+                "size": i18n.ltr(human_size(total)) if total else "", "main": main, "checked": it.id in self._checked}
 
     def refresh(self):
         items = self._visible_items()

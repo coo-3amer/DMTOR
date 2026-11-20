@@ -39,8 +39,10 @@ AR = {
     "Speed limit on": "حد السرعة مفعّل",
     "When done": "بعد الانتهاء",
     "When done: Sleep": "بعد الانتهاء: سكون",
-    "When done: Shut down": "بعد الانتهاء: إيقاف التشغيل",
+    "When done: Shut down": "بعد الانتهاء: إطفاء",
     "When done: Close": "بعد الانتهاء: إغلاق",
+    "Today": "اليوم",
+    "Yesterday": "أمس",
     "When downloads finish": "عند انتهاء التحميلات",
     "When downloads finish: {a}": "عند انتهاء التحميلات: {a}",
     "Settings": "الإعدادات",
@@ -78,7 +80,7 @@ AR = {
     "THIS WEEK": "هذا الأسبوع",
     "EARLIER": "أقدم",
     "{n} selected": "{n} محدد",
-    "{n} active  ·  {s}/s": "{n} نشط  ·  {s}/ث",
+    "{n} active  ·  {s}/s": "{n} نشط  ·  \u2066{s}/s\u2069",
     "{n} items": "{n} عنصر",
     "{n} item": "عنصر واحد",
     "Resume": "استئناف",
@@ -111,9 +113,9 @@ AR = {
     "Waiting in queue": "في قائمة الانتظار",
     "Stopping…": "جاري الإيقاف…",
     "Stopped": "متوقف",
-    "Stopped at {p}%": "توقف عند {p}%",
+    "Stopped at {p}%": "توقف عند \u2066{p}%\u2069",
     "{a} of {b}": "{a} من {b}",
-    "{s}/s": "{s}/ث",
+    "{s}/s": "\u2066{s}/s\u2069",
     "{t} left": "متبقي {t}",
     "{n} peers": "{n} نظير",
     "will restart (no resume)": "سيبدأ من جديد (لا يدعم الاستئناف)",
@@ -302,6 +304,10 @@ AR = {
     "Restart MZ-DManager to switch the language.": "أعد تشغيل MZ-DManager لتغيير اللغة.",
     "Restart now": "إعادة التشغيل الآن",
     "System (follow Windows)": "النظام (يتبع ويندوز)",
+    "STARTUP": "التشغيل", "CLIPBOARD": "الحافظة", "BROWSER": "المتصفح", "SPEED": "السرعة", "TIP": "ملاحظة",
+    "TORRENT": "التورنت", "UPDATES": "التحديثات", "FOLDERS": "المجلدات", "SCHEDULE": "الجدولة",
+    ".torrent file…": "ملف تورنت…",
+    "About MZ-DManager {v}": "عن MZ-DManager {v}",
     "Mon": "اثنين", "Tue": "ثلاثاء", "Wed": "أربعاء", "Thu": "خميس", "Fri": "جمعة", "Sat": "سبت", "Sun": "أحد",
     "Yes": "نعم", "No": "لا", "OK": "موافق",
 }
@@ -309,12 +315,22 @@ AR = {
 _WS = re.compile(r"^(\s*)(.*?)(\s*)$", re.S)
 
 
+_LRI, _PDI = "\u2066", "\u2069"
+
+
+class _RtlText(str):
+    """Arabic template: numbers and sizes put into it stay left-to-right ("12.1 MB", not "MB 12.1")."""
+    def format(self, *args, **kw):
+        iso = lambda v: v if isinstance(v, str) and re.search("[\u0600-\u06FF]", v) else _LRI + str(v) + _PDI  # noqa
+        return str.format(self, *[iso(a) for a in args], **{k: iso(v) for k, v in kw.items()})
+
+
 def tr(text):
     """Translate a fixed text (or a template, before .format)."""
     if LANG != "ar" or not text:
         return text
     if text in AR:
-        return AR[text]
+        return _RtlText(AR[text])
     if "\t" in text:                       # "Add URL…\tCtrl+N"
         a, b = text.split("\t", 1)
         return tr(a) + "\t" + b
@@ -327,6 +343,11 @@ def tr(text):
 def plural(n, one, many):
     """English one/many forms; Arabic templates take {n} the same way."""
     return tr(one if n == 1 else many).format(n=n)
+
+
+def ltr(text):
+    """Keep a number or size left-to-right inside Arabic text."""
+    return _LRI + text + _PDI if LANG == "ar" else text
 
 
 def translate_tree(root):
