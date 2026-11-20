@@ -6,6 +6,7 @@ import time
 
 import core
 from core import FileDownload, GLOBAL_LIMIT
+from video import VideoDownload
 
 
 def downloads_dir():
@@ -82,7 +83,7 @@ class Manager:
             rows = []
         for d in rows:
             try:
-                it = FileDownload.from_dict(d)
+                it = (VideoDownload if d.get("kind") == "video" else FileDownload).from_dict(d)
                 if it.status in ("downloading", "pausing", "queued"):
                     it.status = "paused"
                 self.items.append(it)
@@ -106,6 +107,10 @@ class Manager:
     def new_file(self, url, name="", headers=None, save_dir=None):
         return FileDownload(url, save_dir or self.settings["save_dir"], name, headers,
                             self.settings["segments"], self.settings["categorize"])
+
+    def new_video(self, url, quality="best", title="", save_dir=None):
+        return VideoDownload(url, save_dir or self.settings["save_dir"], quality, title,
+                             self.settings["categorize"])
 
     def add(self, item, start=True):
         item.status = "queued" if start else "paused"
@@ -179,6 +184,8 @@ class Manager:
         for it in self.items:
             if it._thread:
                 it._thread.join(timeout=max(0.1, deadline - time.time()))
+            if getattr(it, "_kill", None):
+                it._kill()
         for it in self.items:
             if it.status in ("downloading", "pausing", "queued"):
                 it.status = "paused"

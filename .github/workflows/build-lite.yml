@@ -61,6 +61,13 @@ jobs:
           Get-Content selftest.txt | Out-Host
           if ($p.ExitCode -ne 0) { throw "self-test failed" }
 
+      - name: Video add-on test
+        shell: pwsh
+        run: |
+          $p = Start-Process dist/MZ-DManager-Lite/MZ-DManager-Lite.exe -ArgumentList "--videotest", "videotest.txt" -PassThru -Wait
+          Get-Content videotest.txt | Out-Host
+          if ($p.ExitCode -ne 0) { throw "video add-on test failed" }
+
       - name: Screenshots
         shell: pwsh
         run: |
@@ -90,6 +97,7 @@ jobs:
           New-Item -ItemType Directory -Force pub | Out-Null
           Copy-Item output/MZ-DManager-Lite-Setup.exe pub/
           Copy-Item selftest.txt pub/
+          if (Test-Path videotest.txt) { Copy-Item videotest.txt pub/ }
           if (Test-Path shots) { Copy-Item -Recurse shots pub/shots }
           Set-Content pub/version.txt $env:VER -NoNewline
           Set-Location pub

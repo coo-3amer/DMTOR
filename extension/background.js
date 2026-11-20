@@ -97,11 +97,17 @@ chrome.downloads.onCreated.addListener(async (item) => {
 // 2) Right-click menu
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({ id: "mzl-link", title: "Download link with MZ-DManager Lite", contexts: ["link", "image", "audio", "video"] });
+    chrome.contextMenus.create({ id: "mzl-link", title: "Download link with MZ-DManager Lite", contexts: ["link", "image", "audio"] });
+    chrome.contextMenus.create({ id: "mzl-video", title: "Download video with MZ-DManager Lite", contexts: ["page", "video", "link"] });
   });
 });
 
-chrome.contextMenus.onClicked.addListener(async (info) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === "mzl-video") {
+    let vurl = info.linkUrl || info.pageUrl;
+    if (info.srcUrl && /^https?:/i.test(info.srcUrl) && !info.linkUrl) vurl = info.pageUrl;
+    return sendToApp({ type: "video", url: vurl, referrer: info.pageUrl || "", title: tab ? tab.title : "" });
+  }
   const url = info.linkUrl || info.srcUrl;
   if (!url || !/^https?:/i.test(url)) return;
   await sendToApp({ type: "file", url, referrer: info.pageUrl || "", cookies: await cookieHeader(url) });
@@ -110,7 +116,11 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 // 3) Messages from the page (clicks) and the popup
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   (async () => {
-    if (msg.action === "click") {
+    if (msg.action === "video") {
+      const alive = await appAlive();
+      if (!alive) return reply({ ok: false, reason: "app" });
+      reply({ ok: await sendToApp({ type: "video", url: msg.url, referrer: msg.url, title: msg.title || "" }) });
+    } else if (msg.action === "click") {
       try { await chrome.storage.session.set({ lastClick: Date.now() }); } catch (e) {}
       reply({ ok: true });
     } else if (msg.action === "status") {

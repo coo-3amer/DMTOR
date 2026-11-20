@@ -1,4 +1,4 @@
-VERSION = "1.1"
+VERSION = "1.2"
 APP_NAME = "MZ-DManager Lite"
 REPO = "coo-3amer/DMTOR"
 BRANCH = "download-win7"          # the Windows 7 edition is published here, apart from the main app

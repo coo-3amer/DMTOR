@@ -62,7 +62,7 @@ def make_server(inbox, capture=lambda: True):
             if self.path != "/add":
                 return self._send(404, {})
             url = str(data.get("url", ""))
-            if not url.startswith(("http://", "https://")):
+            if not url.startswith(("http://", "https://")):  # files and video pages
                 return self._send(400, {"error": "bad url"})
             inbox.put(data)
             self._send(200, {"ok": True})

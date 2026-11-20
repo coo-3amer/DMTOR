@@ -12,6 +12,7 @@ from urllib.parse import urlparse, unquote
 import core
 import probe
 import updater
+import video
 from core import human_size, human_time, fmt_rate, category_of
 from engine import Manager
 from server import make_server
@@ -242,12 +243,17 @@ class AddDialog(tk.Toplevel):
         self.transient(app.root)
         f = tk.Frame(self, bg=C["bg"], padx=22, pady=18)
         f.pack(fill="both", expand=True)
+        self.f = f
         lbl(f, "New download", bold=True, size=13).grid(row=0, column=0, columnspan=3, sticky="w")
-        lbl(f, "Paste a link to a file.", muted=True).grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 12))
+        lbl(f, "Paste a link to a file or a video page (YouTube, Facebook, TikTok…).", muted=True).grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
         self.url = tk.StringVar(value=payload.get("url", "") or self._clip())
-        self.name = tk.StringVar(value=payload.get("filename", ""))
+        self.name = tk.StringVar(value=payload.get("filename", "") or payload.get("title", ""))
         self.folder = tk.StringVar(value=self.mgr.settings["save_dir"])
+        self.kind = tk.StringVar(value="video" if payload.get("type") == "video" or
+                                 video.is_video_url(self.url.get()) else "file")
+        self.quality = tk.StringVar(value="Best")
         self.headers = {}
         if payload.get("cookies"):
             self.headers["Cookie"] = payload["cookies"]
@@ -257,37 +263,51 @@ class AddDialog(tk.Toplevel):
             self.headers["User-Agent"] = payload["userAgent"]
         self.hint_size = int(payload.get("size") or 0)
 
-        for r, (text, var) in enumerate((("Link", self.url), ("File name", self.name), ("Save to", self.folder)), 2):
-            lbl(f, text, muted=True).grid(row=r, column=0, sticky="w", padx=(0, 12), pady=5)
-            e = entry(f, var, 58)
-            e.grid(row=r, column=1, sticky="we", pady=5, ipady=5)
-            if text == "Link":
-                self.url_entry = e
-            if text == "Save to":
-                Btn(f, "Browse…", self._browse, padx=10, pady=5).grid(row=r, column=2, padx=(8, 0))
+        lbl(f, "Link", muted=True).grid(row=2, column=0, sticky="w", padx=(0, 12), pady=5)
+        self.url_entry = entry(f, self.url, 58)
+        self.url_entry.grid(row=2, column=1, columnspan=2, sticky="we", pady=5, ipady=5)
+
+        lbl(f, "Type", muted=True).grid(row=3, column=0, sticky="w", pady=5)
+        tr = tk.Frame(f, bg=C["bg"])
+        tr.grid(row=3, column=1, columnspan=2, sticky="w")
+        for val, text in (("file", "File"), ("video", "Video (YouTube…)")):
+            tk.Radiobutton(tr, text=text, value=val, variable=self.kind, command=self._kind_changed, bg=C["bg"],
+                           fg=C["text"], selectcolor=C["panel2"], activebackground=C["bg"], activeforeground=C["text"],
+                           font=FONT, highlightthickness=0, bd=0).pack(side="left", padx=(0, 16))
+        self.q_label = lbl(tr, "Quality", muted=True)
+        self.q_box = ttk.Combobox(tr, textvariable=self.quality, values=[t for _, t in video.QUALITIES],
+                                  state="readonly", width=16, font=FONT)
+
+        lbl(f, "Name", muted=True).grid(row=4, column=0, sticky="w", pady=5)
+        entry(f, self.name, 58).grid(row=4, column=1, columnspan=2, sticky="we", pady=5, ipady=5)
+        lbl(f, "Save to", muted=True).grid(row=5, column=0, sticky="w", pady=5)
+        entry(f, self.folder, 46).grid(row=5, column=1, sticky="we", pady=5, ipady=5)
+        Btn(f, "Browse…", self._browse, padx=10, pady=5).grid(row=5, column=2, padx=(8, 0))
 
         self.info = tk.Frame(f, bg=C["panel"], padx=14, pady=10, highlightthickness=1,
                              highlightbackground=C["line"])
-        self.info.grid(row=5, column=0, columnspan=3, sticky="we", pady=(12, 4))
+        self.info.grid(row=6, column=0, columnspan=3, sticky="we", pady=(12, 4))
         self.info_name = lbl(self.info, "", bold=True)
         self.info_name.configure(bg=C["panel"])
         self.info_name.pack(anchor="w")
         self.info_text = lbl(self.info, "", muted=True, wrap=470)
         self.info_text.configure(bg=C["panel"])
         self.info_text.pack(anchor="w")
+        self.addon_btn = Btn(self.info, "Get video add-on", self._get_addon, kind="acc", padx=12, pady=5)
 
         row = tk.Frame(f, bg=C["bg"])
-        row.grid(row=6, column=0, columnspan=3, sticky="we", pady=(14, 0))
+        row.grid(row=7, column=0, columnspan=3, sticky="we", pady=(14, 0))
         Btn(row, "Download now", lambda: self._ok(True), kind="acc", padx=16).pack(side="left")
         Btn(row, "Download later", lambda: self._ok(False)).pack(side="left", padx=8)
         Btn(row, "Cancel", self.destroy).pack(side="left")
 
         self.bind("<Return>", lambda e: self._ok(True))
         self.bind("<Escape>", lambda e: self.destroy())
-        self.url.trace_add("write", lambda *a: self._schedule_probe())
+        self.url.trace_add("write", lambda *a: self._url_changed())
         self._gen = 0
         self._after = None
-        self._probe()
+        self._last = None
+        self._kind_changed()
         center(self, app.root)
         self.grab_set()
         self.url_entry.focus_set()
@@ -306,32 +326,81 @@ class AddDialog(tk.Toplevel):
             self.folder.set(os.path.normpath(d))
             self._show(self._last)
 
+    def _url_changed(self):
+        if video.is_video_url(self.url.get()) and self.kind.get() != "video":
+            self.kind.set("video")
+            self._kind_changed()
+            return
+        self._schedule_probe()
+
+    def _kind_changed(self):
+        if self.kind.get() == "video":
+            self.q_label.pack(side="left", padx=(8, 6))
+            self.q_box.pack(side="left")
+        else:
+            self.q_label.pack_forget()
+            self.q_box.pack_forget()
+        self._last = None
+        self._probe()
+
     def _schedule_probe(self):
         if self._after:
             self.after_cancel(self._after)
-        self._after = self.after(600, self._probe)
-
-    _last = None
+        self._after = self.after(700, self._probe)
 
     def _probe(self):
         url = self.url.get().strip()
         self._gen += 1
         gen = self._gen
+        self.addon_btn.pack_forget()
         if not url.startswith(("http://", "https://")):
             self._last = None
             self.info_name.configure(text="")
-            self.info_text.configure(text="Paste a link that starts with http:// or https://")
+            self.info_text.configure(text="Paste a link that starts with http:// or https://", fg=C["muted"])
+            return
+        is_video = self.kind.get() == "video"
+        if is_video and not video.ready():
+            self.info_name.configure(text="Video add-on needed")
+            big = "about 60 MB" if video.is_64bit_windows() else "about 25 MB"
+            self.info_text.configure(fg=C["muted"], text=(
+                "YouTube and other video sites need a one-time add-on (" + big + "): the video downloader for "
+                "Windows 7, a small JavaScript engine and the HD video joiner. It's downloaded once and kept."))
+            self.addon_btn.pack(anchor="w", pady=(8, 0))
             return
         self.info_name.configure(text=self.name.get() or os.path.basename(unquote(urlparse(url).path)) or url)
-        self.info_text.configure(text="Checking size…")
+        self.info_text.configure(text="Getting video info… (can take a few seconds)" if is_video else
+                                 "Checking size…", fg=C["muted"])
 
         def work():
             try:
-                res = probe.probe_file(url, self.headers)
+                res = video.probe(url) if is_video else probe.probe_file(url, self.headers)
             except Exception as e:
                 res = {"error": str(e)[:200]}
             self.app.call(lambda: self.winfo_exists() and gen == self._gen and self._show(res))
         threading.Thread(target=work, daemon=True).start()
+
+    def _get_addon(self):
+        self.addon_btn.set_enabled(False)
+
+        def prog(label, done, total):
+            txt = f"Downloading {label}… " + (f"{100 * done // total}%" if total else human_size(done))
+            self.app.call(lambda: self.winfo_exists() and self.info_text.configure(text=txt))
+
+        def work():
+            try:
+                video.install(prog)
+                err = None
+            except Exception as e:
+                err = str(e)[:200]
+            self.app.call(lambda: self.winfo_exists() and self._addon_done(err))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _addon_done(self, err):
+        self.addon_btn.set_enabled(True)
+        if err:
+            self.info_text.configure(text="Couldn't download the add-on: " + err, fg=C["bad"])
+            return
+        self._probe()
 
     def _show(self, info):
         if info is None:
@@ -341,6 +410,21 @@ class AddDialog(tk.Toplevel):
         free = probe.free_space(folder)
         if "error" in info:
             self.info_text.configure(text="Couldn't check this link: " + info["error"], fg=C["warn"])
+            return
+        if info.get("kind") == "video":
+            if not self.name.get().strip():
+                self.name.set(info.get("name", ""))
+            parts = []
+            if info.get("site"):
+                parts.append(info["site"])
+            if info.get("duration"):
+                parts.append("Length " + human_time(info["duration"]))
+            if not video.ffmpeg_path():
+                parts.append("No HD joiner on 32-bit Windows: best single file (often 360p)")
+            if free is not None:
+                parts.append(f"{human_size(free)} free on {probe.drive_name(folder)}")
+            self.info_name.configure(text=info.get("name") or self.url.get())
+            self.info_text.configure(text="   ·   ".join(parts), fg=C["muted"])
             return
         name = self.name.get().strip() or info.get("name") or ""
         size = info.get("size") or self.hint_size
@@ -355,7 +439,7 @@ class AddDialog(tk.Toplevel):
             parts.append("Not enough space — choose another folder.")
             color = C["bad"]
         if info.get("page"):
-            parts.append("This link opens a web page, not a file.")
+            parts.append("This link opens a web page, not a file. For a video, choose Type → Video.")
             color = C["warn"]
         self.info_name.configure(text=name or self.url.get())
         self.info_text.configure(text="   ·   ".join(parts), fg=color)
@@ -367,7 +451,15 @@ class AddDialog(tk.Toplevel):
             return
         folder = self.folder.get().strip()
         default = core._same(folder, self.mgr.settings["save_dir"]) or not folder
-        it = self.mgr.new_file(url, self.name.get().strip(), self.headers, None if default else folder)
+        if self.kind.get() == "video":
+            if not video.ready():
+                messagebox.showinfo(APP_NAME, "Get the video add-on first (the button in the box above).",
+                                    parent=self)
+                return
+            q = dict((t, k) for k, t in video.QUALITIES).get(self.quality.get(), "best")
+            it = self.mgr.new_video(url, q, self.name.get().strip(), None if default else folder)
+        else:
+            it = self.mgr.new_file(url, self.name.get().strip(), self.headers, None if default else folder)
         if not default:
             it.categorize = False           # a folder you picked gets the file only, no sub-folders
         self.mgr.add(it, start)
@@ -436,6 +528,14 @@ class SettingsDialog(tk.Toplevel):
                                                                            sticky="w", pady=(4, 0))
         Btn(f, "Check now", lambda: app.check_updates(manual=True), padx=10, pady=4).grid(row=r, column=2,
                                                                                          sticky="e", pady=(4, 0))
+        r += 1
+        lbl(f, "Video add-on", muted=True).grid(row=r, column=0, sticky="w", pady=(8, 0))
+        lbl(f, "Installed (YouTube and video sites)" if video.ready() else "Not installed — get it from Add download "
+            "→ Type: Video", color=C["ok"] if video.ready() else C["muted"]).grid(row=r, column=1, sticky="w",
+                                                                              pady=(8, 0))
+        if video.ready():
+            Btn(f, "Update it", lambda: threading.Thread(target=video.update_ytdlp, daemon=True).start(),
+                padx=10, pady=4).grid(row=r, column=2, sticky="e", pady=(8, 0))
         r += 1
         lbl(f, f"{APP_NAME} {VERSION} — Windows 7 edition. Closing the window keeps it next to the clock.", muted=True).grid(
             row=r, column=0, columnspan=3, sticky="w", pady=(12, 0))
@@ -611,6 +711,9 @@ class App:
         self.refresh()
         self._loop()
         self._pump()
+        if video.ready() and time.time() - mgr.settings.get("ytdlp_update", 0) > 2 * 86400:
+            mgr.settings["ytdlp_update"] = time.time()
+            threading.Thread(target=video.update_ytdlp, daemon=True).start()   # YouTube changes often
         if mgr.settings.get("auto_update", True) and time.time() - mgr.settings.get("last_update_check", 0) > 6 * 3600:
             root.after(4000, self.check_updates)
 
@@ -625,6 +728,13 @@ class App:
         st.map("Treeview.Heading", background=[("active", C["panel2"])])
         st.map("Treeview", background=[("selected", C["sel"])], foreground=[("selected", "#ffffff")])
         st.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        st.configure("TCombobox", fieldbackground=C["panel2"], background=C["btn"], foreground=C["text"],
+                     arrowcolor=C["text"], bordercolor=C["line"], lightcolor=C["panel2"], darkcolor=C["panel2"])
+        st.map("TCombobox", fieldbackground=[("readonly", C["panel2"])], foreground=[("readonly", C["text"])],
+               selectbackground=[("readonly", C["panel2"])], selectforeground=[("readonly", C["text"])])
+        self.root.option_add("*TCombobox*Listbox.background", C["panel2"])
+        self.root.option_add("*TCombobox*Listbox.foreground", C["text"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", C["sel"])
         st.configure("Vertical.TScrollbar", background=C["btn"], troughcolor=C["bg"], borderwidth=0,
                      arrowcolor=C["muted"], gripcount=0)
 
@@ -1126,6 +1236,52 @@ def selftest(out):
     return 0 if ok else 1
 
 
+def videotest(out):
+    """CI: install the video add-on and try it (the build machine is 64-bit Windows Server)."""
+    lines = []
+    ok = True
+    try:
+        def prog(label, d, t):
+            pass
+        video.install(prog)
+        lines.append("tools: " + ", ".join(sorted(os.listdir(video.tools_dir()))))
+        r = subprocess.run([video.ytdlp_path(), "--version"], capture_output=True, timeout=60,
+                           creationflags=video.NO_WINDOW)
+        lines.append("yt-dlp " + r.stdout.decode().strip())
+        ok = ok and r.returncode == 0
+        r = subprocess.run([video.qjs_path(), "-e", "print(6*7)"], capture_output=True, timeout=30,
+                           creationflags=video.NO_WINDOW)
+        lines.append("qjs says " + r.stdout.decode().strip())
+        ok = ok and r.stdout.decode().strip() == "42"
+        lines.append("ffmpeg: " + (video.ffmpeg_path() or "none"))
+        for url in ("https://www.youtube.com/watch?v=jNQXAC9IVRw", "https://vimeo.com/76979871"):
+            lines.append(f"probe {url}: {video.probe(url, timeout=150)}")
+        # the 32-bit file names exist too
+        os.environ["PROCESSOR_ARCHITEW6432"] = ""
+        os.environ["PROCESSOR_ARCHITECTURE"] = "x86"
+        lines.append("x86 yt-dlp: " + video._ytdlp_url())
+        for v in video.QJS_VERSIONS:
+            u = f"https://bellard.org/quickjs/binary_releases/quickjs-win-i686-{v}.zip"
+            code = requests_head(u)
+            lines.append(f"x86 qjs {v}: {code}")
+    except Exception:
+        import traceback
+        lines.append(traceback.format_exc())
+        ok = False
+    lines.append("PASS" if ok else "FAIL")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return 0 if ok else 1
+
+
+def requests_head(u):
+    import requests
+    try:
+        return requests.head(u, timeout=20, allow_redirects=True).status_code
+    except Exception as e:
+        return str(e)[:80]
+
+
 def shots(out):
     import importlib
     grab = importlib.import_module("PIL.ImageGrab")
@@ -1185,6 +1341,9 @@ def main():
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
         sys.exit(selftest(sys.argv[i + 1] if i + 1 < len(sys.argv) else "selftest.txt"))
+    if "--videotest" in sys.argv:
+        i = sys.argv.index("--videotest")
+        sys.exit(videotest(sys.argv[i + 1] if i + 1 < len(sys.argv) else "videotest.txt"))
     if "--shots" in sys.argv:
         i = sys.argv.index("--shots")
         sys.exit(shots(sys.argv[i + 1] if i + 1 < len(sys.argv) else "shots"))
