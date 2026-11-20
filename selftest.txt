@@ -1,0 +1,4 @@
+tk 8.6
+tray ok
+download done 206260 bytes 
+PASS

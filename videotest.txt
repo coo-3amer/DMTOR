@@ -1,0 +1,11 @@
+tools: ffmpeg.exe, libwinpthread-1.dll, qjs.exe, yt-dlp.exe
+yt-dlp 2026.11.19.084014
+qjs says 42
+ffmpeg: C:\Users\runneradmin\AppData\Roaming\MZ-DManager Lite\tools\ffmpeg.exe
+probe https://www.youtube.com/watch?v=jNQXAC9IVRw: {'error': '[youtube] jNQXAC9IVRw: Sign in to confirm you’re not a bot. This helps protect our community. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki'}
+probe https://vimeo.com/76979871: {'error': '[vimeo] 76979871: The web client only works when logged-in. Use --cookies, --cookies-from-browser, --username and --password, --netrc-cmd, or --netrc (vimeo) to provide account credentials. See  https'}
+x86 yt-dlp: https://github.com/nicolaasjan/yt-dlp/releases/download/2026.11.19.084014/yt-dlp_x86_win7.exe
+x86 qjs 2026-06-04: 200
+x86 qjs 2025-09-13: 200
+x86 qjs 2025-04-26: 200
+PASS
