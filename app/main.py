@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QTime
 
 import theme
+import i18n
+from i18n import tr, plural
 import features
 import core
 import probe
@@ -581,7 +583,7 @@ class AddDialog(QDialog):
             form.addRow(self.ff_note)
 
         sch = mgr.settings
-        self.sched = QCheckBox(f"Add to the schedule (starts at {sch.get('schedule_start', '02:00')})")
+        self.sched = QCheckBox(tr("Add to the schedule (starts at {t})").format(t=sch.get('schedule_start', '02:00')))
         self.sched.setVisible(bool(sch.get("schedule_on")))
         form.addRow(self.sched)
         now = primary(QPushButton("Download now"))
@@ -689,7 +691,7 @@ class AddDialog(QDialog):
         info = self._info
         folder = self.folder.text().strip() or self.mgr.settings["save_dir"]
         free = probe.free_space(folder)
-        free_txt = f"{human_size(free)} free on {probe.drive_name(folder)}" if free is not None else ""
+        free_txt = tr("{s} free on {d}").format(s=human_size(free), d=probe.drive_name(folder)) if free is not None else ""
         guess = os.path.basename(urlparse(url).path) if url.lower().startswith("http") else ""
         if kind == 2:
             ic, color = "magnet", T("teal")
@@ -700,12 +702,12 @@ class AddDialog(QDialog):
         self.card.show()
         if checking or info is None:
             hint = f"{human_size(self._hint_size)}" if self._hint_size else ""
-            self.card.set(ic, color, guess or url, hint, "Checking size…  " + free_txt)
+            self.card.set(ic, color, guess or url, hint, tr("Checking size…") + "  " + free_txt)
             self.adjustSize()
             return
         if "error" in info:
             self.card.set(ic, color, guess or url, "", free_txt,
-                          f"Couldn't check this link: {info['error']}")
+                          tr("Couldn't check this link: {e}").format(e=info['error']))
             self.adjustSize()
             return
         size = None
@@ -716,24 +718,24 @@ class AddDialog(QDialog):
             size = info.get("size") or self._hint_size or None
             ic, color = CATEGORY_ICON.get(category_of(name), CATEGORY_ICON["Other"])
             if not size:
-                details.append("The server didn't say how big it is")
-            details.append("Pause & resume: yes" if info.get("resumable") else
-                           "Pause & resume: no — if paused it starts over")
+                details.append(tr("The server didn't say how big it is"))
+            details.append(tr("Pause & resume: yes" if info.get("resumable") else
+                              "Pause & resume: no — if paused it starts over"))
             if info.get("page"):
-                warn = "This link opens a web page, not a file. For a video on it, choose Type → Video."
+                warn = tr("This link opens a web page, not a file. For a video on it, choose Type → Video.")
         elif info["kind"] == "video":
             size = (info.get("sizes") or {}).get(self.quality.currentData())
             if info.get("duration"):
-                details.append(f"Length {human_time(info['duration'])}")
+                details.append(tr("Length {t}").format(t=human_time(info['duration'])))
             if info.get("site"):
                 details.append(info["site"])
             if size:
-                details.append("size is an estimate")
+                details.append(tr("size is an estimate"))
         else:
             if info.get("magnet"):
-                details.append("The size appears once the torrent connects — you'll pick the files then")
+                details.append(tr("The size appears once the torrent connects — you'll pick the files then"))
             elif info.get("files"):
-                details.append(f"{info['files']} file{'s' if info['files'] != 1 else ''}")
+                details.append(plural(info['files'], "{n} file", "{n} files"))
         if info["kind"] == "torrent":
             cat = "Torrents"
         elif info["kind"] == "video":
@@ -742,13 +744,13 @@ class AddDialog(QDialog):
             cat = category_of(self.name.text().strip() or name)
         dest = core.resolve_folder(folder, cat)
         parts = os.path.normpath(dest).split(os.sep)
-        details.append("Saves to " + ("…" + os.sep + os.sep.join(parts[-2:]) if len(parts) > 2 else dest))
+        details.append(tr("Saves to") + " " + ("…" + os.sep + os.sep.join(parts[-2:]) if len(parts) > 2 else dest))
         if free_txt:
             details.append(free_txt)
         if size and free is not None and size > free:
-            warn = (f"Not enough space on {probe.drive_name(folder)} — it needs {human_size(size)}, "
-                    f"only {human_size(free)} is free. Choose another folder below.")
-        size_txt = ("~" if info["kind"] == "video" and size else "") + (human_size(size) if size else "Unknown size")
+            warn = tr("Not enough space on {d} — it needs {a}, only {b} is free. Choose another folder below.").format(
+                d=probe.drive_name(folder), a=human_size(size), b=human_size(free))
+        size_txt = ("~" if info["kind"] == "video" and size else "") + (human_size(size) if size else tr("Unknown size"))
         self.card.set(ic, color, name, size_txt, "  ·  ".join(details), warn)
         self.adjustSize()
 
@@ -1378,6 +1380,10 @@ class SettingsDialog(QDialog):
             self.theme.addItem(theme_swatch(key), text, key)
         self.theme.setCurrentIndex(max(0, self.theme.findData(self._orig_theme)))
         self.theme.currentIndexChanged.connect(self._preview_theme)
+        self.lang = QComboBox()
+        for code, text in i18n.LANGUAGES:
+            self.lang.addItem(text, code)
+        self.lang.setCurrentIndex(max(0, self.lang.findData(s.get("language", "en"))))
         self.startup = QCheckBox("Start with Windows (runs next to the clock)")
         self.startup.setChecked(s.get("startup", False))
         self.startup.setEnabled(sys.platform == "win32")
@@ -1394,7 +1400,7 @@ class SettingsDialog(QDialog):
         guide_btn.setIcon(icon("link", T("icon"), 16))
         guide_btn.clicked.connect(open_browser_guide)
         general = page(
-            form(("Theme", self.theme)),
+            form(("Language", self.lang), ("Theme", self.theme)),
             label("System follows Windows: light during the day if Windows is light, dark otherwise.", "Muted", True),
             "", label("STARTUP", "Section"), self.startup,
             "", label("CLIPBOARD", "Section"), self.clip, ind,
@@ -1606,8 +1612,21 @@ class SettingsDialog(QDialog):
         self.mgr.ensure_folders()
         if s["schedule_on"] and hasattr(self.win, "scheduler"):
             self.win.scheduler._was_inside = False       # re-evaluate the window with the new times
+        lang_changed = self.lang.currentData() != s.get("language", "en")
+        s["language"] = self.lang.currentData()
         self.mgr.save()
         self.accept()
+        if lang_changed and hasattr(self.win, "restart_app"):
+            i18n_new = self.lang.currentData()
+            box = QMessageBox(self.win)
+            box.setWindowTitle(APP_NAME)
+            box.setText("Restart MZ-DManager to switch the language." if i18n_new == "en" else
+                        "أعد تشغيل MZ-DManager لتغيير اللغة.")
+            now = box.addButton("Restart now" if i18n_new == "en" else "إعادة التشغيل الآن", QMessageBox.AcceptRole)
+            box.addButton("Later" if i18n_new == "en" else "لاحقاً", QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is now:
+                self.win.restart_app()
 
 
 # ---------------------------------------------------------------- main window
@@ -1699,7 +1718,14 @@ def cat_color(cat):
     return theme.mix(col, "#000000", 0.18) if T("light") else col
 
 
-def row_rects(rect):
+def mirror(r, q):
+    """Flip a rect inside row r for right-to-left (Arabic) layout."""
+    if not i18n.is_rtl():
+        return q
+    return QRectF(r.left() + r.right() - q.right(), q.top(), q.width(), q.height())
+
+
+def row_rects(rect, ltr=False):
     """Hit areas of one list row: checkbox, then the three hover buttons (main, folder, more)."""
     r = QRectF(rect)
     cy = r.center().y()
@@ -1709,7 +1735,9 @@ def row_rects(rect):
     for _ in range(3):
         btns.insert(0, QRectF(x - 34, cy - 17, 34, 34))
         x -= 40
-    return check, btns
+    if ltr:
+        return check, btns
+    return mirror(r, check), [mirror(r, b) for b in btns]
 
 
 class DownloadDelegate(QStyledItemDelegate):
@@ -1732,7 +1760,8 @@ class DownloadDelegate(QStyledItemDelegate):
             f.setBold(True)
             p.setFont(f)
             p.setPen(QColor(T("muted")))
-            p.drawText(r.adjusted(18, 0, 0, -4), Qt.AlignLeft | Qt.AlignBottom, d["section"])
+            p.drawText(r.adjusted(18, 0, -18, -4), (Qt.AlignRight if i18n.is_rtl() else Qt.AlignLeft) | Qt.AlignBottom,
+                       d["section"])
             p.restore()
             return
         row = idx.row()
@@ -1742,7 +1771,11 @@ class DownloadDelegate(QStyledItemDelegate):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(T("row_sel") if sel else T("row_hover")))
             p.drawRoundedRect(r.adjusted(6, 3, -6, -3), 12, 12)
-        check, btns = row_rects(r)
+        check_l, btns_l = row_rects(r, ltr=True)       # laid out left-to-right, flipped by M() for Arabic
+        M = lambda q: mirror(r, q)                     # noqa: E731
+        check, btns = M(check_l), [M(b) for b in btns_l]
+        lead = Qt.AlignRight if i18n.is_rtl() else Qt.AlignLeft
+        trail = Qt.AlignLeft if i18n.is_rtl() else Qt.AlignRight
         # checkbox
         if d.get("checked"):
             p.setPen(Qt.NoPen)
@@ -1762,7 +1795,7 @@ class DownloadDelegate(QStyledItemDelegate):
         # progress ring with the file-type icon inside
         status, frac, cat = d["status"], d["frac"], d["cat"]
         color = cat_color(cat)
-        ring = QRectF(check.right() + 14, r.center().y() - 21, 42, 42)
+        ring = M(QRectF(check_l.right() + 14, r.center().y() - 21, 42, 42))
         inner = ring.adjusted(2, 2, -2, -2)
         p.setBrush(Qt.NoBrush)
         if status == "done":
@@ -1790,28 +1823,28 @@ class DownloadDelegate(QStyledItemDelegate):
             ic, ic_color = "pause", T("muted")
         p.drawPixmap(int(ring.center().x() - 10), int(ring.center().y() - 10), pixmap(ic, ic_color, 20))
         # name + details
-        x = ring.right() + 14
-        right_edge = btns[0].left() - 10 if hover else r.right() - 18
+        x = check_l.right() + 14 + 42 + 14
+        right_edge = btns_l[0].left() - 10 if hover else r.right() - 18
         size_w = 0
         if not hover and d.get("size"):
             f = QFont(opt.font)
             p.setFont(f)
             size_w = p.fontMetrics().horizontalAdvance(d["size"]) + 8
             p.setPen(QColor(T("muted")))
-            p.drawText(QRectF(r.right() - 18 - size_w, r.top(), size_w, r.height()), Qt.AlignRight | Qt.AlignVCenter,
+            p.drawText(M(QRectF(r.right() - 18 - size_w, r.top(), size_w, r.height())), trail | Qt.AlignVCenter,
                        d["size"])
         w = right_edge - x - size_w - 10
         f = QFont(opt.font)
         f.setPointSizeF(f.pointSizeF() + 0.6)
         p.setFont(f)
         p.setPen(QColor(T("strong")))
-        p.drawText(QRectF(x, r.top() + 10, w, r.height() / 2 - 10), Qt.AlignLeft | Qt.AlignBottom,
+        p.drawText(M(QRectF(x, r.top() + 10, w, r.height() / 2 - 10)), lead | Qt.AlignBottom,
                    p.fontMetrics().elidedText(d["name"], Qt.ElideMiddle, int(w)))
         f2 = QFont(opt.font)
         f2.setPointSizeF(max(7.5, f2.pointSizeF() - 0.9))
         p.setFont(f2)
         p.setPen(QColor(d["meta_color"]))
-        p.drawText(QRectF(x, r.center().y() + 3, w, r.height() / 2 - 8), Qt.AlignLeft | Qt.AlignTop,
+        p.drawText(M(QRectF(x, r.center().y() + 3, w, r.height() / 2 - 8)), lead | Qt.AlignTop,
                    p.fontMetrics().elidedText(d["meta"], Qt.ElideRight, int(w)))
         # hover buttons
         if hover:
@@ -1832,11 +1865,11 @@ class DeleteAllDialog(QDialog):
         v = QVBoxLayout(self)
         v.setContentsMargins(22, 20, 22, 18)
         v.setSpacing(10)
-        v.addWidget(label(f"Delete all {n} download{'s' if n != 1 else ''}?", "Title"))
+        v.addWidget(label(plural(n, "Delete all {n} download?", "Delete all {n} downloads?"), "Title"))
         v.addWidget(label("They're removed from the list. Running downloads stop first.", "Muted", True))
         v.addSpacing(4)
         self.files = QCheckBox("Also delete the files from my PC")
-        self.only_done = QCheckBox(f"Only finished downloads ({n_done})")
+        self.only_done = QCheckBox(tr("Only finished downloads ({n})").format(n=n_done))
         v.addWidget(self.files)
         v.addWidget(self.only_done)
         v.addSpacing(8)
@@ -2042,10 +2075,10 @@ class MainWindow(QMainWindow):
     def _apply_when_ui(self):
         key = self.mgr.settings.get("after_done", "none")
         b = self._rail["when_done"]
-        b.setToolTip("When downloads finish: " + dict(ACTIONS).get(key, "Do nothing"))
+        b.setToolTip(tr("When downloads finish: {a}").format(a=tr(dict(ACTIONS).get(key, "Do nothing"))))
         short = {"none": "When done", "sleep": "When done: Sleep", "shutdown": "When done: Shut down",
                  "quit": "When done: Close"}
-        b.setText(short.get(key, "When done"))
+        b.setText(tr(short.get(key, "When done")))
         b.setProperty("on", key != "none")
         b.style().unpolish(b)
         b.style().polish(b)
@@ -2242,8 +2275,9 @@ class MainWindow(QMainWindow):
         on = s.get("limit_on", False)
         b = self._rail["speed"]
         down, t_down, t_up = self.mgr.effective_limits()
-        b.setText(f"Speed: {fmt_rate(down)}" if on and down else ("Speed: limited" if on else "Speed limit"))
-        self.limit_lbl.setText(f"Speed limit: {fmt_rate(down)}" if on and down else ("Speed limit on" if on else ""))
+        b.setText(tr("Speed: {r}").format(r=fmt_rate(down)) if on and down else tr("Speed: limited" if on else "Speed limit"))
+        self.limit_lbl.setText(tr("Speed limit: {r}").format(r=fmt_rate(down)) if on and down else
+                               (tr("Speed limit on") if on else ""))
         if on:
             tip = (f"Speed limit ON\nDownloads: {fmt_rate(down)}\nTorrents: ↓ {fmt_rate(t_down)}"
                    f"   ↑ {fmt_rate(t_up)}\nClick for options (Ctrl+L turns it off)")
@@ -2343,9 +2377,9 @@ class MainWindow(QMainWindow):
     def _apply_capture_ui(self):
         on = self.mgr.settings.get("capture", True)
         b = self.capture_btn
-        b.setText("Browser: catching" if on else "Browser: not catching")
+        b.setText(tr("Browser: catching" if on else "Browser: not catching"))
         b.setIcon(icon("catch" if on else "catch_off", T("ok") if on else T("warn_text"), 16))
-        b.setToolTip(("Catching downloads from the browser — click to turn off" if on else
+        b.setToolTip(tr("Catching downloads from the browser — click to turn off" if on else
                       "Not catching — the browser downloads files itself. Click to turn on")
                      + "  (Ctrl+Shift+C)")
         b.setProperty("off", not on)
@@ -2561,7 +2595,7 @@ class MainWindow(QMainWindow):
 
     def _set_sort(self, val, refresh=True):
         self._sort = val
-        self.sort_btn.setText("Sort: " + dict(SORTS).get(val, "Newest first"))
+        self.sort_btn.setText(tr("Sort: {s}").format(s=tr(dict(SORTS).get(val, "Newest first"))))
         self._row_ids = []
         if refresh:
             self.refresh()
@@ -2703,13 +2737,13 @@ class MainWindow(QMainWindow):
         names = {"resume_all": "Resume all", "stop_all": "Stop all", "delete_all": "Delete all",
                  "open_torrent": "Open .torrent"}
         for k, b in btns.items():
-            b.setText("" if compact else names[k])
+            b.setText("" if compact else tr(names[k]))
         self.search.setFixedWidth(170 if compact else 230)
         chip_names = dict([("any", "All types")] + TYPE_CHIPS)
         for k, b in self._chips.items():
-            b.setToolTip(chip_names[k])
+            b.setToolTip(tr(chip_names[k]))
             if k == "any":
-                b.setText("All" if compact else "All types")
+                b.setText(tr("All" if compact else "All types"))
             else:
                 b.setToolButtonStyle(Qt.ToolButtonIconOnly if compact else Qt.ToolButtonTextBesideIcon)
 
@@ -2768,8 +2802,8 @@ class MainWindow(QMainWindow):
         try:
             import shutil as _sh
             u = _sh.disk_usage(p)
-            self.disk_lbl.setText(f"{human_size(u.free)} free")
-            self.disk_lbl.setToolTip(f"{folder}\n{human_size(u.free)} free of {human_size(u.total)}")
+            self.disk_lbl.setText(tr("{s} free").format(s=human_size(u.free)))
+            self.disk_lbl.setToolTip(folder + "\n" + tr("{a} free of {b}").format(a=human_size(u.free), b=human_size(u.total)))
         except OSError:
             self.disk_lbl.setText("")
 
@@ -2922,41 +2956,41 @@ class MainWindow(QMainWindow):
         meta_color = T("muted")
         if st == "downloading":
             if it.kind == "torrent" and it.awaiting_files:
-                parts.append("Choose files to start")
+                parts.append(tr("Choose files to start"))
             elif it.kind == "torrent" and it.phase in ("metadata", "checking"):
-                parts.append("Getting info…" if it.phase == "metadata" else "Checking…")
+                parts.append(tr("Getting info…" if it.phase == "metadata" else "Checking…"))
             else:
                 parts.append(f"{100 * frac:.0f}%" if total else human_size(done))
                 if total:
-                    parts.append(f"{human_size(done)} of {human_size(total)}")
+                    parts.append(tr("{a} of {b}").format(a=human_size(done), b=human_size(total)))
                 if it.speed:
-                    parts.append(f"{human_size(it.speed)}/s")
+                    parts.append(tr("{s}/s").format(s=human_size(it.speed)))
                     if total:
-                        parts.append(human_time((total - done) / it.speed) + " left")
+                        parts.append(tr("{t} left").format(t=human_time((total - done) / it.speed)))
                 if it.kind == "torrent":
-                    parts.append(f"{it.peers} peers")
+                    parts.append(tr("{n} peers").format(n=it.peers))
                     if it.upload:
-                        parts.append(f"↑ {human_size(it.upload)}/s")
+                        parts.append("↑ " + tr("{s}/s").format(s=human_size(it.upload)))
         elif st in ("queued", "pausing"):
-            parts.append("Waiting in queue" if st == "queued" else "Stopping…")
+            parts.append(tr("Waiting in queue" if st == "queued" else "Stopping…"))
         elif st == "paused":
-            parts.append(f"Stopped at {100 * frac:.0f}%" if total else "Stopped")
+            parts.append(tr("Stopped at {p}%").format(p=f"{100 * frac:.0f}") if total else tr("Stopped"))
             if total:
-                parts.append(f"{human_size(done)} of {human_size(total)}")
+                parts.append(tr("{a} of {b}").format(a=human_size(done), b=human_size(total)))
             if it.kind == "file" and not getattr(it, "resumable", True) and done:
-                parts.append("will restart (no resume)")
+                parts.append(tr("will restart (no resume)"))
             meta_color = T("warn_text")
         elif st == "done":
-            parts.append("Completed" + (" · seeding" if it.kind == "torrent" and it.seeding else ""))
+            parts.append(tr("Completed · seeding" if it.kind == "torrent" and it.seeding else "Completed"))
             parts.append(added_text(it.added))
             meta_color = T("ok")
         elif st == "error":
-            parts.append("Failed" + (f" — {it.error}" if it.error else ""))
+            parts.append(tr("Failed") + (f" — {it.error}" if it.error else ""))
             meta_color = T("danger_icon")
         if getattr(it, "scheduled", False) and st != "done":
-            parts.append("scheduled")
+            parts.append(tr("scheduled"))
         if it.limit:
-            parts.append(f"max {fmt_rate(it.limit)}")
+            parts.append(tr("max {r}").format(r=fmt_rate(it.limit)))
         main = {"downloading": "pause", "queued": "pause", "done": "open", "error": "update"}.get(st, "play")
         return {"name": it.name or it.url, "meta": "  ·  ".join(parts), "meta_color": meta_color,
                 "status": st, "frac": frac, "cat": cat,
@@ -2974,7 +3008,7 @@ class MainWindow(QMainWindow):
             if grouped:
                 sec = self._section_of(it.added)
                 if sec != last:
-                    rows.append(("section", sec))
+                    rows.append(("section", tr(sec)))
                     last = sec
             rows.append(("item", it))
         ids = [x.id if kind == "item" else None for kind, x in rows]
@@ -3009,16 +3043,17 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(1)
             if self._filter in dict((k, 1) for k, _, _ in TORRENT_FILTERS) and \
                     not any(i.kind == "torrent" for i in self.mgr.items):
-                self.empty_title.setText("No torrents yet")
-                self.empty_text.setText("Open a .torrent file, paste a magnet link in Add download,\n"
-                                        "or drop a .torrent file here.")
+                self.empty_title.setText(tr("No torrents yet"))
+                self.empty_text.setText(tr("Open a .torrent file, paste a magnet link in Add download,\n"
+                                           "or drop a .torrent file here."))
             elif self.mgr.items:
-                self.empty_title.setText("Nothing here")
-                self.empty_text.setText("No downloads match this view" + (" or search." if self._search else "."))
+                self.empty_title.setText(tr("Nothing here"))
+                self.empty_text.setText(tr("No downloads match this view or search." if self._search else
+                                           "No downloads match this view."))
             else:
-                self.empty_title.setText("No downloads yet")
-                self.empty_text.setText("Click a download link in Chrome or Edge and it lands here.\n"
-                                        "Or press + to paste a link, or drop a .torrent file here.")
+                self.empty_title.setText(tr("No downloads yet"))
+                self.empty_text.setText(tr("Click a download link in Chrome or Edge and it lands here.\n"
+                                           "Or press + to paste a link, or drop a .torrent file here."))
 
         # rail badges, chip counts, titles
         for key, badge in self._rail_badges.items():
@@ -3037,27 +3072,31 @@ class MainWindow(QMainWindow):
                 continue
             n = sum(1 for i in self.mgr.items if matches(i, self._filter) and item_category(i) == key)
             b.setVisible(bool(n) or key == self._type)
-        title = {"torrents": "Torrents", "t_active": "Torrents  ·  Downloading", "t_seeding": "Torrents  ·  Seeding",
-                 "t_done": "Torrents  ·  Completed"}.get(self._filter) or \
-            dict((k, t_) for k, _, t_ in STATUS_FILTERS).get(self._filter, "Downloads")
+        tsub = {"t_active": "Downloading", "t_seeding": "Seeding", "t_done": "Completed"}
+        if self._filter == "torrents":
+            title = tr("Torrents")
+        elif self._filter in tsub:
+            title = tr("Torrents") + "  ·  " + tr(tsub[self._filter])
+        else:
+            title = tr(dict((k, t_) for k, _, t_ in STATUS_FILTERS).get(self._filter, "Downloads"))
         if self._type != "any":
-            title += "  ·  " + dict(TYPE_CHIPS).get(self._type, self._type)
+            title += "  ·  " + tr(dict(TYPE_CHIPS).get(self._type, self._type))
         self.page_title.setText(title)
         active = [i for i in self.mgr.items if i.status == "downloading"]
         speed = sum(i.speed for i in active)
         v_active = [i for i in items if i.status == "downloading"]
         v_speed = sum(i.speed for i in v_active)
         up = sum(getattr(i, "upload", 0.0) or 0.0 for i in self.mgr.items)
-        self.page_sub.setText(f"{len(v_active)} active  ·  {human_size(v_speed)}/s" if v_active else
-                              f"{len(items)} item{'s' if len(items) != 1 else ''}")
+        self.page_sub.setText(tr("{n} active  ·  {s}/s").format(n=len(v_active), s=human_size(v_speed)) if v_active
+                              else plural(len(items), "{n} item", "{n} items"))
         # select all + selection bar
         vis_ids = {i.id for i in items}
         n_checked = len(self._checked & vis_ids)
         self.select_all.setCheckState(Qt.Checked if vis_ids and n_checked == len(vis_ids) else
                                       Qt.PartiallyChecked if n_checked else Qt.Unchecked)
-        self.sel_info.setText(f"{n_checked} selected" if n_checked else "")
-        self.down_val.setText(f"{human_size(speed)}/s" if speed else "0 B/s")
-        self.up_val.setText(f"{human_size(up)}/s" if up else "0 B/s")
+        self.sel_info.setText(tr("{n} selected").format(n=n_checked) if n_checked else "")
+        self.down_val.setText(tr("{s}/s").format(s=human_size(speed) if speed else "0 B"))
+        self.up_val.setText(tr("{s}/s").format(s=human_size(up) if up else "0 B"))
         if active:
             self.tray.setToolTip(f"{APP_NAME}\n{len(active)} downloading · {human_size(speed)}/s")
         else:
@@ -3087,7 +3126,7 @@ class MainWindow(QMainWindow):
         hb["delete_all"].setEnabled(bool(self._visible_items()))
         self.selbar.setVisible(bool(sel))
         if sel:
-            self.selbar_text.setText(f"{len(sel)} selected")
+            self.selbar_text.setText(tr("{n} selected").format(n=len(sel)))
             b = self.sel_btns
             b["resume"].setEnabled(any(i.status in ("paused", "error", "pausing") for i in sel))
             b["pause"].setEnabled(any(i.status in ("downloading", "queued") for i in sel))
@@ -3282,7 +3321,7 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("Delete")
         box.setIconPixmap(pixmap("trash", T("danger_icon"), 40))
         n = len(items)
-        box.setText(f"<b>Remove {n} download{'s' if n > 1 else ''}?</b>")
+        box.setText("<b>" + plural(n, "Remove {n} download?", "Remove {n} downloads?") + "</b>")
         box.setInformativeText("You can keep the file on disk or delete it too.")
         cancel = box.addButton("Cancel", QMessageBox.RejectRole)
         only = box.addButton("Remove from list", QMessageBox.AcceptRole)
@@ -3423,6 +3462,14 @@ class MainWindow(QMainWindow):
             self.tray.showMessage(APP_NAME, "Still running in the tray and catching browser downloads.\n"
                                   "Right-click the tray icon → Quit to exit.",
                                   QSystemTrayIcon.Information, 5000)
+
+    def restart_app(self):
+        try:
+            args = [sys.executable] + ([] if getattr(sys, "frozen", False) else [os.path.abspath(__file__)])
+            subprocess.Popen(args + ["--restart"], close_fds=True)
+        except OSError:
+            return
+        self.quit_app()
 
     def quit_app(self):
         self._quitting = True
@@ -3612,6 +3659,52 @@ def shots(out):
     save(cd, "dialog_countdown")
     cd.hide()
     w.tray.hide()
+    # Arabic (right-to-left)
+    i18n.set_lang("ar")
+    app.setLayoutDirection(Qt.RightToLeft)
+    w.hide()
+    w2 = MainWindow(mgr, queue.Queue())
+    w2.timer.stop()
+    w2.setMinimumSize(1180, 760)
+    w2.resize(1180, 760)
+    w2.show()
+    i18n.translate_tree(w2)
+    w2.refresh()
+    w2.apply_theme_icons()
+    row = w2._row_ids.index(mgr.items[1].id)
+    w2.table.setProperty("hoverRow", row)
+    save(w2, "arabic_main")
+    w2._checked.update({mgr.items[1].id, mgr.items[2].id})
+    w2.refresh()
+    save(w2, "arabic_selected")
+    w2._checked.clear()
+    w2.set_filter("torrents")
+    save(w2, "arabic_torrents")
+    w2.set_filter("all")
+    w2._fill_more_menu(w2.more_menu)
+    w2.more_menu.popup(w2._rail["more"].mapToGlobal(w2._rail["more"].rect().topLeft()))
+    i18n.translate_tree(w2.more_menu)
+    save(w2.more_menu, "arabic_menu_more")
+    w2.more_menu.hide()
+    dlg = SettingsDialog(w2, mgr)
+    dlg.theme.blockSignals(True)
+    dlg.show()
+    i18n.translate_tree(dlg)
+    save(dlg, "arabic_settings")
+    dlg.hide()
+    a = AddDialog(w2, mgr, {"url": "https://example.com/tools/EdenSetup-2.4.exe"})
+    a.show()
+    i18n.translate_tree(a)
+    fake(a, {"kind": "file", "name": "EdenSetup-2.4.exe", "size": 87_400_000, "resumable": True,
+             "mime": "application/octet-stream", "final_url": ""})
+    save(a, "arabic_add")
+    a.hide()
+    d = DeleteAllDialog(w2, 8, 2)
+    d.show()
+    i18n.translate_tree(d)
+    save(d, "arabic_delete_all")
+    d.hide()
+    w2.tray.hide()
     return 0
 
 
@@ -3670,8 +3763,17 @@ def main():
     inbox = queue.Queue()
     incoming = args_to_payloads(sys.argv[1:])
     shared = {"capture": lambda: True}
+    server = None
+    if "--restart" in sys.argv:              # the old copy is closing: wait for it to free the port
+        for _ in range(40):
+            try:
+                server = make_server(inbox, lambda: shared["capture"]())
+                break
+            except OSError:
+                time.sleep(0.25)
     try:
-        server = make_server(inbox, lambda: shared["capture"]())
+        if server is None:
+            server = make_server(inbox, lambda: shared["capture"]())
     except OSError:
         # Already running: hand over what we were opened with (magnet link, .torrent, URL).
         try:
@@ -3685,6 +3787,8 @@ def main():
             QMessageBox.warning(None, APP_NAME, f"Port {PORT} is already used by another program.")
         return
     mgr = Manager()
+    i18n.set_lang(mgr.settings.get("language", "en"))
+    i18n.install(app)
     theme.apply(app, asset_url, mgr.settings.get("theme", "aurora"))
     mgr.ensure_folders()
     flag = os.path.join(mgr.dir, "startup.flag")      # left by the installer's "Start with Windows" box
